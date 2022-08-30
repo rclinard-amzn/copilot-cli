@@ -149,6 +149,139 @@ func TestFindLinkedServices(t *testing.T) {
 				"db":  postgresSvc,
 			},
 		},
+		"deprecated links behavior ignored": {
+			inSvc: compose.ServiceConfig{
+				Name:  "svc",
+				Image: "test",
+				Links: []string{
+					"backend",
+				},
+			},
+			inOtherSvcs: []compose.ServiceConfig{
+				{
+					Name:  "backend",
+					Image: "nginx",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"isolated": {},
+					},
+				},
+			},
+
+			wantLinked: map[string]compose.ServiceConfig{
+				"svc": {
+					Name:  "svc",
+					Image: "test",
+					Links: []string{
+						"backend",
+					},
+				},
+			},
+		},
+		"overlaps frontend": {
+			inSvc: compose.ServiceConfig{
+				Name:  "front",
+				Image: "fe",
+				Networks: map[string]*compose.ServiceNetworkConfig{
+					"frontnet": {},
+				},
+			},
+			inOtherSvcs: []compose.ServiceConfig{
+				{
+					Name:  "back",
+					Image: "be",
+					Links: []string{
+						"front:shouldnotmatter",
+					},
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"frontnet": {},
+						"backnet":  {},
+					},
+				},
+				{
+					Name:  "db",
+					Image: "postgres",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"backnet": {},
+					},
+				},
+			},
+			wantLinked: map[string]compose.ServiceConfig{
+				"front": {
+					Name:  "front",
+					Image: "fe",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"frontnet": {},
+					},
+				},
+				"back": {
+					Name:  "back",
+					Image: "be",
+					Links: []string{
+						"front:shouldnotmatter",
+					},
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"frontnet": {},
+						"backnet":  {},
+					},
+				},
+			},
+		},
+		"overlaps backend": {
+			inSvc: compose.ServiceConfig{
+				Name:  "back",
+				Image: "be",
+				Links: []string{
+					"db:aliaseddb",
+				},
+				Networks: map[string]*compose.ServiceNetworkConfig{
+					"frontnet": {},
+					"backnet":  {},
+				},
+			},
+			inOtherSvcs: []compose.ServiceConfig{
+				{
+					Name:  "front",
+					Image: "fe",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"frontnet": {},
+					},
+				},
+				{
+					Name:  "db",
+					Image: "postgres",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"backnet": {},
+					},
+				},
+			},
+			wantLinked: map[string]compose.ServiceConfig{
+				"front": {
+					Name:  "front",
+					Image: "fe",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"frontnet": {},
+					},
+				},
+				"back": {
+					Name:  "back",
+					Image: "be",
+					Links: []string{
+						"db:aliaseddb",
+					},
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"frontnet": {},
+						"backnet":  {},
+					},
+				},
+				"aliaseddb": {
+					Name:  "db",
+					Image: "postgres",
+					Networks: map[string]*compose.ServiceNetworkConfig{
+						"backnet": {},
+					},
+				},
+			},
+		},
 		// TODO
 	}
 
