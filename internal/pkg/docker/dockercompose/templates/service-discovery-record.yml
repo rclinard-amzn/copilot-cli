@@ -1,0 +1,48 @@
+# This is a Copilot addon generated during a Docker Compose import.
+# It allows your services to talk to each other by service name like in Compose, by
+# redirecting to the appropriate Service Discovery endpoint.
+#
+# We recommend migrating to Service Discovery and deleting this file after you have
+# migrated to Service Discovery.
+#
+# More information on migration to Service Discovery can be found here:
+# https://aws.github.io/copilot-cli/docs/developing/service-discovery/
+#
+# More information about how to use addons can be found here:
+# https://aws.github.io/copilot-cli/docs/developing/addons/modeling/
+
+# Required parameters by AWS Copilot.
+Parameters:
+  App:
+    Type: String
+    Description: Your application's name.
+  Env:
+    Type: String
+    Description: The environment name your service, job, or workflow is being deployed to.
+  Name:
+    Type: String
+    Description: The name of the service, job, or workflow being deployed.
+
+# The Route53 CNAME resources.
+Resources:
+  ServiceDiscoveryAliases:
+    Type: "AWS::Route53::RecordSetGroup"
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: !Sub "${AppName}-${EnvName}-HostedZone"
+      RecordSets:
+{{range $alias := .}}
+        - Name: {{quote $alias.AliasName}}
+          TTL: 300
+          ResourceRecords:
+            # Manually formed version of the appropriate subdomain of COPILOT_SERVICE_DISCOVERY_ENDPOINT
+            # In your application, you should reference COPILOT_SERVICE_DISCOVERY_ENDPOINT directly instead - this
+            # addon just doesn't have access to that environment variable.
+            - Fn::Join:
+                - '.'
+                - - {{quote $alias.TargetSvc}}
+                  - !Ref Env
+                  - !Ref App
+                  - 'local'
+              Type: "CNAME"
+{{end}}
