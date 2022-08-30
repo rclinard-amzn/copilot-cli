@@ -56,17 +56,26 @@ func serviceDiscoveryAliases(linked map[string]compose.ServiceConfig) []aliasLin
 
 // findLinkedServices uses Compose networking rules to determine the other services that this service can talk to.
 func findLinkedServices(service *compose.ServiceConfig, otherSvcs compose.Services) (map[string]compose.ServiceConfig, error) {
+	allSvcs := make(compose.Services, 0, 1+len(otherSvcs))
+	allSvcs = append(allSvcs, *service)
+	allSvcs = append(allSvcs, otherSvcs...)
+
 	switch {
 	case service.NetworkMode == "none":
 		return nil, nil
 	case strings.HasPrefix(service.NetworkMode, "service:"):
 		svcName := strings.TrimPrefix(service.NetworkMode, "service:")
-		for _, svc := range otherSvcs {
+		var linked *compose.ServiceConfig
+		for _, svc := range allSvcs {
 			if svc.Name == svcName {
-				otherSvcs = []compose.ServiceConfig{svc}
+				linked = &svc
 				break
 			}
 		}
+		if linked == nil {
+			return nil, fmt.Errorf("no service with the name \"%s\" found for network mode \"%s\"", svcName, service.NetworkMode)
+		}
+		allSvcs = []compose.ServiceConfig{*linked}
 	case service.NetworkMode == "host":
 		return nil, fmt.Errorf("network mode \"%s\" is not supported", service.NetworkMode)
 	}
@@ -80,29 +89,36 @@ func findLinkedServices(service *compose.ServiceConfig, otherSvcs compose.Servic
 		}
 	}
 
-	if len(service.Networks) != 0 {
-		networks := make(map[string]bool)
+	networks := make(map[string]bool)
+
+	if len(service.Networks) == 0 {
+		networks["default"] = true
+	} else {
 		for name := range service.Networks {
 			networks[name] = true
 			// TODO: Check unsupported
 		}
+	}
 
-		var netSvcs []compose.ServiceConfig
-		for _, svc := range otherSvcs {
-			for net := range svc.Networks {
-				if networks[net] {
-					netSvcs = append(netSvcs, svc)
-					break
-				}
+	var netSvcs []compose.ServiceConfig
+	for _, svc := range allSvcs {
+		for net := range svc.Networks {
+			if networks[net] {
+				netSvcs = append(netSvcs, svc)
+				break
 			}
 		}
 
-		otherSvcs = netSvcs
+		if len(svc.Networks) == 0 && networks["default"] {
+			netSvcs = append(netSvcs, svc)
+		}
 	}
+
+	allSvcs = netSvcs
 
 	linked := make(map[string]compose.ServiceConfig)
 
-	for _, svc := range otherSvcs {
+	for _, svc := range allSvcs {
 		alias := renames[svc.Name]
 		if alias == "" {
 			alias = svc.Name
