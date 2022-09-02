@@ -5,6 +5,8 @@ package manifest
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -1460,6 +1462,30 @@ func TestNetworkLoadBalancerConfiguration_IsEmpty(t *testing.T) {
 			// THEN
 			require.Equal(t, tc.wanted, got)
 		})
+	}
+}
+
+func TestLoadBalancedWebService_MarshalBinary_Roundtrip(t *testing.T) {
+	testCases := []string{
+		"lbws-complete.yml",
+	}
+
+	for _, tc := range testCases {
+		path := filepath.Join("testdata", "roundtrip", tc)
+		origBytes, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		wkld, err := UnmarshalWorkload(origBytes)
+		require.NoError(t, err)
+
+		origLBWS := wkld.Manifest().(*LoadBalancedWebService)
+		newBytes, err := origLBWS.MarshalBinary()
+		require.NoError(t, err)
+
+		newWkld, err := UnmarshalWorkload(newBytes)
+		newLBWS := newWkld.Manifest().(*LoadBalancedWebService)
+
+		require.Equal(t, origLBWS, newLBWS)
 	}
 }
 

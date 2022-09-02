@@ -1,0 +1,75 @@
+# Your service name will be used in naming your resources like log groups, ECS services, etc.
+name: complete
+type: Load Balanced Web Service
+
+http:
+  path: "/path"
+  deregistration_delay: 20s
+  target_container: "nginx"
+  stickiness: true
+  allowed_source_ips: ["192.0.2.0/24", "198.51.100.10/32"]
+  alias: ["www.example2.com"]
+  hosted_zone: "Z0873220N255IR3MTNR4"
+  version: "http2"
+  healthcheck:
+    path: '/healthy'
+    port: 8080
+    success_codes: '200'
+    healthy_threshold: 3
+    unhealthy_threshold: 2
+    interval: 15s
+    timeout: 10s
+    grace_period: 60s
+
+# Configuration for your containers and service.
+image:
+  port: 8090
+  credentials: "arn:aws:secretsmanager:region:aws_account_id:secret:secret_name"
+  labels:
+    "com.example.label1": "testval"
+    "com.example.label2": "testval2"
+  depends_on:
+    nginx: start
+    secret_injector: success
+  build:
+    dockerfile: path/to/dockerfile
+    context: context/dir
+    target: build-stage
+    cache_from:
+      - image:tag
+    args:
+      key: value
+  healthcheck:
+    command: ["CMD-SHELL", "/bin/yes"]
+    interval: 5s
+    retries: 10
+    timeout: 10s
+    start_period: 100s
+
+
+cpu: 256       # Number of CPU units for the task.
+memory: 512    # Amount of memory in MiB used by the task.
+count:
+  range:
+    min: 1
+    max: 10
+    spot_from: 5
+
+platform:
+  osfamily: windows_server_2019_full
+  architecture: x86_64
+
+# Optional fields for more advanced use-cases.
+#
+#variables:                    # Pass environment variables as key value pairs.
+#  LOG_LEVEL: info
+
+#secrets:                      # Pass secrets from AWS Systems Manager (SSM) Parameter Store.
+#  GITHUB_TOKEN: GITHUB_TOKEN  # The key is the name of the environment variable, the value is the name of the SSM parameter.
+
+# You can override any of the values defined above by environment.
+#environments:
+#  test:
+#    count: 2               # Number of tasks to run for the "test" environment.
+#    deployment:            # The deployment strategy for the "test" environment.
+#       rolling: 'recreate' # Stops existing tasks before new ones are started for faster deployments.

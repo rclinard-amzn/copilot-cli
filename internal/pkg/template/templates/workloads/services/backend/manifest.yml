@@ -8,11 +8,12 @@ type: {{.Type}}
 {{if .ImageConfig.Port}}
 # Your service is reachable at "http://{{.Name}}.${COPILOT_SERVICE_DISCOVERY_ENDPOINT}:{{.ImageConfig.Port}}" but is not public.
 {{- else}}
-# Your service does not allow any traffic.
+# Your service does not allow any incoming traffic.
 {{- end}}
 
 # Configuration for your containers and service.
 image:
+    # TODO: More advanced build args
 {{- if .ImageConfig.Image.Build.BuildArgs.Dockerfile}}
   # Docker build arguments. For additional overrides: https://aws.github.io/copilot-cli/docs/manifest/backend-service/#image-build
   build: {{.ImageConfig.Image.Build.BuildArgs.Dockerfile}}
@@ -27,11 +28,29 @@ image:
 {{- if not .ImageConfig.HealthCheck.IsEmpty}}
   healthcheck:
     # Container health checks: https://aws.github.io/copilot-cli/docs/manifest/backend-service/#image-healthcheck
+    {{- if .ImageConfig.HealthCheck.Command}}
     command: {{fmtSlice (quoteSlice .ImageConfig.HealthCheck.Command)}}
+    {{- end}}
+    {{- if .ImageConfig.HealthCheck.Interval}}
     interval: {{.ImageConfig.HealthCheck.Interval}}
+    {{- end}}
+    {{- if .ImageConfig.HealthCheck.Retries}}
     retries: {{.ImageConfig.HealthCheck.Retries}}
+    {{- end}}
+    {{- if .ImageConfig.HealthCheck.Timeout}}
     timeout: {{.ImageConfig.HealthCheck.Timeout}}
+    {{- end}}
+    {{- if .ImageConfig.HealthCheck.StartPeriod}}
     start_period: {{.ImageConfig.HealthCheck.StartPeriod}}
+    {{- end}
+{{- end}}
+
+{{- if .EntryPoint}}
+entrypoint: {{fmtCmd .EntryPoint}} # Override the default entrypoint of the image (declared with ENTRYPOINT).
+{{- end}}
+
+{{- if .Command}}
+command: {{fmtCmd .Command}} # Override the default command of the image (declared with CMD).
 {{- end}}
 
 cpu: {{.CPU}}       # Number of CPU units for the task.
@@ -39,10 +58,13 @@ memory: {{.Memory}}    # Amount of memory in MiB used by the task.
 {{- if .Platform.PlatformString}}
 platform: {{.Platform.PlatformString}}     # See https://aws.github.io/copilot-cli/docs/manifest/backend-service/#platform
 {{- end}}
+# TODO: This is wrong
 count: {{.Count.Value}}       # Number of tasks that should be running in your service.
 {{- if not .TaskConfig.IsWindows }}
 exec: true     # Enable running commands in your container.
 {{- end}}
+
+# TODO: Everything else!!!
 
 # Optional fields for more advanced use-cases.
 #
