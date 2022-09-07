@@ -13,10 +13,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/copilot-cli/internal/pkg/addon"
 	"github.com/aws/copilot-cli/internal/pkg/deploy"
 	"github.com/aws/copilot-cli/internal/pkg/deploy/cloudformation/stack"
 	"github.com/aws/copilot-cli/internal/pkg/manifest"
+	"github.com/aws/copilot-cli/internal/pkg/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,13 +48,19 @@ func TestRDWS_Template(t *testing.T) {
 		require.NoError(t, err, "apply test env to manifest")
 		err = envMft.Validate()
 		require.NoError(t, err)
+		err = envMft.Load(session.New())
+		require.NoError(t, err)
 		content := envMft.Manifest()
 
 		v, ok := content.(*manifest.RequestDrivenWebService)
 		require.True(t, ok)
 
-		addons, err := addon.New(aws.StringValue(v.Name))
+		ws, err := workspace.New()
 		require.NoError(t, err)
+
+		_, err = addon.Parse(aws.StringValue(v.Name), ws)
+		var notFound *addon.ErrAddonsNotFound
+		require.ErrorAs(t, err, &notFound)
 
 		// Read wanted stack template.
 		wantedTemplate, err := ioutil.ReadFile(filepath.Join("testdata", "workloads", tc.svcStackPath))
@@ -66,10 +74,10 @@ func TestRDWS_Template(t *testing.T) {
 			Env:      tc.envName,
 			Manifest: v,
 			RuntimeConfig: stack.RuntimeConfig{
-				AccountID: "123456789123",
-				Region:    "us-west-2",
+				AccountID:  "123456789123",
+				Region:     "us-west-2",
+				EnvVersion: "v1.42.0",
 			},
-			Addons: addons,
 		})
 		require.NoError(t, err, "create rdws serializer")
 		actualTemplate, err := serializer.Template()

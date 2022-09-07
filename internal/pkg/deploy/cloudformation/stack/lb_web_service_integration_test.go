@@ -14,9 +14,11 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/copilot-cli/internal/pkg/addon"
 	"github.com/aws/copilot-cli/internal/pkg/config"
 	"github.com/aws/copilot-cli/internal/pkg/deploy/cloudformation/stack"
+	"github.com/aws/copilot-cli/internal/pkg/workspace"
 	"gopkg.in/yaml.v3"
 
 	"github.com/aws/copilot-cli/internal/pkg/manifest"
@@ -71,13 +73,19 @@ func TestLoadBalancedWebService_Template(t *testing.T) {
 		require.NoError(t, err)
 		err = envMft.Validate()
 		require.NoError(t, err)
+		err = envMft.Load(session.New())
+		require.NoError(t, err)
 		content := envMft.Manifest()
 
 		v, ok := content.(*manifest.LoadBalancedWebService)
 		require.True(t, ok)
 
-		addons, err := addon.New(aws.StringValue(v.Name))
+		ws, err := workspace.New()
 		require.NoError(t, err)
+
+		_, err = addon.Parse(aws.StringValue(v.Name), ws)
+		var notFound *addon.ErrAddonsNotFound
+		require.ErrorAs(t, err, &notFound)
 
 		svcDiscoveryEndpointName := fmt.Sprintf("%s.%s.local", tc.envName, appName)
 		envConfig := &manifest.Environment{
@@ -94,8 +102,8 @@ func TestLoadBalancedWebService_Template(t *testing.T) {
 				ServiceDiscoveryEndpoint: svcDiscoveryEndpointName,
 				AccountID:                "123456789123",
 				Region:                   "us-west-2",
+				EnvVersion:               "v1.42.0",
 			},
-			Addons: addons,
 		})
 		tpl, err := serializer.Template()
 		require.NoError(t, err, "template should render")

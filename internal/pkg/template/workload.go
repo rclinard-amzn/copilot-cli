@@ -484,13 +484,13 @@ type WorkloadOpts struct {
 	EnvName            string
 	WorkloadName       string
 	SerializedManifest string // Raw manifest file used to deploy the workload.
+	EnvVersion         string
 
 	// Additional options that are common between **all** workload templates.
 	Variables                map[string]string
 	Secrets                  map[string]Secret
 	Aliases                  []string
 	HTTPSListener            bool
-	UseImportedCerts         bool
 	Tags                     map[string]string        // Used by App Runner workloads to tag App Runner service resources
 	NestedStack              *WorkloadNestedStackOpts // Outputs from nested stacks such as the addons stack.
 	AddonsExtraParams        string                   // Additional user defined Parameters for the addons stack.

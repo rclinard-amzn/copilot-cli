@@ -69,18 +69,18 @@ var (
 // ImageWithHealthcheck represents a container image with health check.
 type ImageWithHealthcheck struct {
 	Image       Image                `yaml:",inline"`
-	HealthCheck ContainerHealthCheck `yaml:"healthcheck"`
+	HealthCheck ContainerHealthCheck `yaml:"healthcheck,omitempty"`
 }
 
 // ImageWithPortAndHealthcheck represents a container image with an exposed port and health check.
 type ImageWithPortAndHealthcheck struct {
 	ImageWithPort `yaml:",inline"`
-	HealthCheck   ContainerHealthCheck `yaml:"healthcheck"`
+	HealthCheck   ContainerHealthCheck `yaml:"healthcheck,omitempty"`
 }
 
 // DeploymentConfiguration represents the deployment strategies for a service.
 type DeploymentConfiguration struct {
-	Rolling *string `yaml:"rolling"`
+	Rolling *string `yaml:"rolling,omitempty"`
 }
 
 func (d *DeploymentConfiguration) isEmpty() bool {
@@ -90,26 +90,26 @@ func (d *DeploymentConfiguration) isEmpty() bool {
 // ImageWithHealthcheckAndOptionalPort represents a container image with an optional exposed port and health check.
 type ImageWithHealthcheckAndOptionalPort struct {
 	ImageWithOptionalPort `yaml:",inline"`
-	HealthCheck           ContainerHealthCheck `yaml:"healthcheck"`
+	HealthCheck           ContainerHealthCheck `yaml:"healthcheck,omitempty"`
 }
 
 // ImageWithOptionalPort represents a container image with an optional exposed port.
 type ImageWithOptionalPort struct {
 	Image Image   `yaml:",inline"`
-	Port  *uint16 `yaml:"port"`
+	Port  *uint16 `yaml:"port,omitempty"`
 }
 
 // TaskConfig represents the resource boundaries and environment variables for the containers in the task.
 type TaskConfig struct {
-	CPU            *int                 `yaml:"cpu"`
-	Memory         *int                 `yaml:"memory"`
+	CPU            *int                 `yaml:"cpu,omitempty"`
+	Memory         *int                 `yaml:"memory,omitempty"`
 	Platform       PlatformArgsOrString `yaml:"platform,omitempty"`
-	Count          Count                `yaml:"count"`
+	Count          Count                `yaml:"count,omitempty"`
 	ExecuteCommand ExecuteCommand       `yaml:"exec"`
-	Variables      map[string]string    `yaml:"variables"`
-	EnvFile        *string              `yaml:"env_file"`
-	Secrets        map[string]Secret    `yaml:"secrets"`
-	Storage        Storage              `yaml:"storage"`
+	Variables      map[string]string    `yaml:"variables,omitempty"`
+	EnvFile        *string              `yaml:"env_file,omitempty"`
+	Secrets        map[string]Secret    `yaml:"secrets,omitempty"`
+	Storage        Storage              `yaml:"storage,omitempty"`
 }
 
 // ContainerPlatform returns the platform for the service.
@@ -158,6 +158,13 @@ func (s *Secret) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+func (s Secret) MarshalYAML() (any, error) {
+	if !s.fromSecretsManager.IsEmpty() {
+		return s.fromSecretsManager, nil
+	}
+	return s.from, nil
+}
+
 // IsSecretsManagerName returns true if the secret refers to the name of a secret stored in SecretsManager.
 func (s *Secret) IsSecretsManagerName() bool {
 	return !s.fromSecretsManager.IsEmpty()
@@ -183,14 +190,14 @@ func (s secretsManagerSecret) IsEmpty() bool {
 
 // Logging holds configuration for Firelens to route your logs.
 type Logging struct {
-	Retention      *int              `yaml:"retention"`
-	Image          *string           `yaml:"image"`
-	Destination    map[string]string `yaml:"destination,flow"`
-	EnableMetadata *bool             `yaml:"enableMetadata"`
-	SecretOptions  map[string]Secret `yaml:"secretOptions"`
-	ConfigFile     *string           `yaml:"configFilePath"`
-	Variables      map[string]string `yaml:"variables"`
-	Secrets        map[string]Secret `yaml:"secrets"`
+	Retention      *int              `yaml:"retention,omitempty"`
+	Image          *string           `yaml:"image,omitempty"`
+	Destination    map[string]string `yaml:"destination,omitempty"`
+	EnableMetadata *bool             `yaml:"enableMetadata,omitempty"`
+	SecretOptions  map[string]Secret `yaml:"secretOptions,omitempty"`
+	ConfigFile     *string           `yaml:"configFilePath,omitempty"`
+	Variables      map[string]string `yaml:"variables,omitempty"`
+	Secrets        map[string]Secret `yaml:"secrets,omitempty"`
 }
 
 // IsEmpty returns empty if the struct has all zero members.
@@ -218,23 +225,23 @@ func (lc *Logging) GetEnableMetadata() *string {
 
 // SidecarConfig represents the configurable options for setting up a sidecar container.
 type SidecarConfig struct {
-	Port          *string              `yaml:"port"`
-	Image         *string              `yaml:"image"`
-	Essential     *bool                `yaml:"essential"`
-	CredsParam    *string              `yaml:"credentialsParameter"`
-	Variables     map[string]string    `yaml:"variables"`
-	Secrets       map[string]Secret    `yaml:"secrets"`
-	MountPoints   []SidecarMountPoint  `yaml:"mount_points"`
-	DockerLabels  map[string]string    `yaml:"labels"`
-	DependsOn     DependsOn            `yaml:"depends_on"`
-	HealthCheck   ContainerHealthCheck `yaml:"healthcheck"`
-	ImageOverride `yaml:",inline"`
+	Port          *string              `yaml:"port,omitempty"`
+	Image         *string              `yaml:"image,omitempty"`
+	Essential     *bool                `yaml:"essential,omitempty"`
+	CredsParam    *string              `yaml:"credentialsParameter,omitempty"`
+	Variables     map[string]string    `yaml:"variables,omitempty"`
+	Secrets       map[string]Secret    `yaml:"secrets,omitempty"`
+	MountPoints   []SidecarMountPoint  `yaml:"mount_points,omitempty"`
+	DockerLabels  map[string]string    `yaml:"labels,omitempty"`
+	DependsOn     DependsOn            `yaml:"depends_on,omitempty"`
+	HealthCheck   ContainerHealthCheck `yaml:"healthcheck,omitempty"`
+	ImageOverride `yaml:",inline,omitempty"`
 }
 
 // OverrideRule holds the manifest overriding rule for CloudFormation template.
 type OverrideRule struct {
-	Path  string    `yaml:"path"`
-	Value yaml.Node `yaml:"value"`
+	Path  string    `yaml:"path,omitempty"`
+	Value yaml.Node `yaml:"value,omitempty"`
 }
 
 // ExecuteCommand is a custom type which supports unmarshaling yaml which
@@ -267,9 +274,17 @@ func (e *ExecuteCommand) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+func (e ExecuteCommand) MarshalYAML() (any, error) {
+	if !e.Config.IsEmpty() {
+		return e.Config, nil
+	}
+
+	return e.Enable, nil
+}
+
 // ExecuteCommandConfig represents the configuration for ECS Execute Command.
 type ExecuteCommandConfig struct {
-	Enable *bool `yaml:"enable"`
+	Enable *bool `yaml:"enable,omitempty"`
 }
 
 // IsEmpty returns whether ExecuteCommandConfig is empty.
@@ -280,11 +295,11 @@ func (e ExecuteCommandConfig) IsEmpty() bool {
 // ContainerHealthCheck holds the configuration to determine if the service container is healthy.
 // See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-healthcheck.html
 type ContainerHealthCheck struct {
-	Command     []string       `yaml:"command"`
-	Interval    *time.Duration `yaml:"interval"`
-	Retries     *int           `yaml:"retries"`
-	Timeout     *time.Duration `yaml:"timeout"`
-	StartPeriod *time.Duration `yaml:"start_period"`
+	Command     []string       `yaml:"command,omitempty"`
+	Interval    *time.Duration `yaml:"interval,omitempty"`
+	Retries     *int           `yaml:"retries,omitempty"`
+	Timeout     *time.Duration `yaml:"timeout,omitempty"`
+	StartPeriod *time.Duration `yaml:"start_period,omitempty"`
 }
 
 // NewDefaultContainerHealthCheck returns container health check configuration

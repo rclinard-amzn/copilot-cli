@@ -22,7 +22,6 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/copilot-cli/internal/pkg/addon"
 	"github.com/aws/copilot-cli/internal/pkg/aws/cloudformation"
 	"github.com/aws/copilot-cli/internal/pkg/aws/ecs"
 	"github.com/aws/copilot-cli/internal/pkg/config"
@@ -46,7 +45,8 @@ type deployMocks struct {
 	mockServiceForceUpdater    *mocks.MockserviceForceUpdater
 	mockAddons                 *mocks.MockstackBuilder
 	mockUploader               *mocks.Mockuploader
-	mockVersionGetter          *mocks.MockversionGetter
+	mockAppVersionGetter       *mocks.MockversionGetter
+	mockEnvVersionGetter       *mocks.MockversionGetter
 	mockFileReader             *mocks.MockfileReader
 	mockValidator              *mocks.MockaliasCertValidator
 }
@@ -153,16 +153,14 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 					Platform:   "mockContainerPlatform",
 					Tags:       []string{mockImageTag},
 				}).Return("mockDigest", nil)
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{
-					WlName: "mockWkld",
-				})
+				m.mockAddons = nil
 			},
 			wantImageDigest: aws.String("mockDigest"),
 		},
 		"should retrieve Load Balanced Web Service custom resource URLs": {
 			mock: func(t *testing.T, m *deployMocks) {
 				// Ignore addon uploads.
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{})
+				m.mockAddons = nil
 
 				// Ensure all custom resources were uploaded.
 				crs, err := customresource.LBWS(fakeTemplateFS())
@@ -188,7 +186,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		"should retrieve Backend Service custom resource URLs": {
 			mock: func(t *testing.T, m *deployMocks) {
 				// Ignore addon uploads.
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{})
+				m.mockAddons = nil
 
 				// Ensure all custom resources were uploaded.
 				crs, err := customresource.Backend(fakeTemplateFS())
@@ -214,7 +212,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		"should retrieve Worker Service custom resource URLs": {
 			mock: func(t *testing.T, m *deployMocks) {
 				// Ignore addon uploads.
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{})
+				m.mockAddons = nil
 
 				// Ensure all custom resources were uploaded.
 				crs, err := customresource.Worker(fakeTemplateFS())
@@ -240,7 +238,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		"should retrieve Request-Driven Web Service custom resource URLs": {
 			mock: func(t *testing.T, m *deployMocks) {
 				// Ignore addon uploads.
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{})
+				m.mockAddons = nil
 
 				// Ensure all custom resources were uploaded.
 				crs, err := customresource.RDWS(fakeTemplateFS())
@@ -266,7 +264,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		"should retrieve Scheduled Job custom resource URLs": {
 			mock: func(t *testing.T, m *deployMocks) {
 				// Ignore addon uploads.
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{})
+				m.mockAddons = nil
 
 				// Ensure all custom resources were uploaded.
 				crs, err := customresource.ScheduledJob(fakeTemplateFS())
@@ -331,6 +329,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 				m.mockFileReader.EXPECT().ReadFile(filepath.Join(mockWorkspacePath, mockEnvFile)).Return([]byte{}, nil)
 				m.mockUploader.EXPECT().Upload(mockS3Bucket, mockEnvFilePath, gomock.Any()).
 					Return(mockEnvFileS3URL, nil)
+				m.mockAddons.EXPECT().Package(gomock.Any()).Return(nil)
 				m.mockAddons.EXPECT().Template().Return("some data", nil)
 				m.mockUploader.EXPECT().Upload(mockS3Bucket, mockAddonPath, gomock.Any()).
 					Return(mockAddonsS3URL, nil)
@@ -342,6 +341,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		"should return error if fail to upload to S3 bucket": {
 			inRegion: "us-west-2",
 			mock: func(t *testing.T, m *deployMocks) {
+				m.mockAddons.EXPECT().Package(gomock.Any()).Return(nil)
 				m.mockAddons.EXPECT().Template().Return("some data", nil)
 				m.mockUploader.EXPECT().Upload(mockS3Bucket, mockAddonPath, gomock.Any()).
 					Return("", mockError)
@@ -351,13 +351,18 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		},
 		"should return empty url if the service doesn't have any addons and env files": {
 			mock: func(t *testing.T, m *deployMocks) {
-				m.mockAddons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{
-					WlName: "mockWkld",
-				})
+				m.mockAddons = nil
 			},
 		},
-		"should fail if addons cannot be retrieved from workspace": {
+		"should fail if packaging addons fails": {
 			mock: func(t *testing.T, m *deployMocks) {
+				m.mockAddons.EXPECT().Package(gomock.Any()).Return(mockError)
+			},
+			wantErr: fmt.Errorf("package addons: %w", mockError),
+		},
+		"should fail if addons template can't be created": {
+			mock: func(t *testing.T, m *deployMocks) {
+				m.mockAddons.EXPECT().Package(gomock.Any()).Return(nil)
 				m.mockAddons.EXPECT().Template().Return("", mockError)
 			},
 			wantErr: fmt.Errorf("retrieve addons template: %w", mockError),
@@ -393,11 +398,13 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 					fileName:      tc.inEnvFile,
 					buildRequired: tc.inBuildRequired,
 				},
-				addons:             m.mockAddons,
 				fs:                 m.mockFileReader,
 				s3Client:           m.mockUploader,
 				imageBuilderPusher: m.mockImageBuilderPusher,
 				templateFS:         fakeTemplateFS(),
+			}
+			if m.mockAddons != nil {
+				wkldDeployer.addons = m.mockAddons
 			}
 			var deployer artifactsUploader
 			deployer = &lbWebSvcDeployer{
@@ -425,6 +432,7 @@ func TestWorkloadDeployer_UploadArtifacts(t *testing.T) {
 		})
 	}
 }
+
 func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 	mockError := errors.New("some error")
 	const (
@@ -475,6 +483,16 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("get service discovery endpoint: some error"),
 		},
+		"fail to get env version": {
+			inEnvironment: &config.Environment{
+				Name: mockEnvName,
+			},
+			mock: func(m *deployMocks) {
+				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("", errors.New("some error"))
+			},
+			wantErr: fmt.Errorf(`get version of environment "mockEnv": some error`),
+		},
 		"fail if alias is not specified with env has imported certs": {
 			inEnvironment: &config.Environment{
 				Name:   mockEnvName,
@@ -490,8 +508,71 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: fmt.Errorf("cannot deploy service mockWkld without http.alias to environment mockEnv with certificate imported"),
+		},
+		"cannot specify alias hosted zone when no certificates are imported in the env": {
+			inEnvironment: &config.Environment{
+				Name:   mockEnvName,
+				Region: "us-east-1",
+			},
+			inEnvironmentConfig: func() *manifest.Environment {
+				envConfig := &manifest.Environment{}
+				return envConfig
+			},
+			inAliases: manifest.Alias{
+				AdvancedAliases: []manifest.AdvancedAlias{
+					{
+						Alias:      aws.String("example.com"),
+						HostedZone: aws.String("mockHostedZone1"),
+					},
+					{
+						Alias:      aws.String("foobar.com"),
+						HostedZone: aws.String("mockHostedZone2"),
+					},
+				},
+			},
+			inApp: &config.Application{
+				Name: mockAppName,
+			},
+			mock: func(m *deployMocks) {
+				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
+			},
+			wantErr: fmt.Errorf("cannot specify alias hosted zones [mockHostedZone1 mockHostedZone2] when no certificates are imported in environment \"mockEnv\""),
+		},
+		"cannot specify alias hosted zone when cdn is enabled": {
+			inEnvironment: &config.Environment{
+				Name:   mockEnvName,
+				Region: "us-east-1",
+			},
+			inEnvironmentConfig: func() *manifest.Environment {
+				envConfig := &manifest.Environment{}
+				envConfig.HTTPConfig.Public.Certificates = mockCertARNs
+				envConfig.CDNConfig.Config.Certificate = aws.String(mockCDNCertARN)
+				return envConfig
+			},
+			inAliases: manifest.Alias{
+				AdvancedAliases: []manifest.AdvancedAlias{
+					{
+						Alias:      aws.String("example.com"),
+						HostedZone: aws.String("mockHostedZone1"),
+					},
+					{
+						Alias:      aws.String("foobar.com"),
+						HostedZone: aws.String("mockHostedZone2"),
+					},
+				},
+			},
+			inApp: &config.Application{
+				Name: mockAppName,
+			},
+			mock: func(m *deployMocks) {
+				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
+			},
+			wantErr: fmt.Errorf("cannot specify alias hosted zones when cdn is enabled in environment \"mockEnv\""),
 		},
 		"fail to validate certificate aliases": {
 			inEnvironment: &config.Environment{
@@ -511,6 +592,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"example.com", "foobar.com"}, mockCertARNs).Return(mockError)
 			},
 			wantErr: fmt.Errorf("validate aliases against the imported public ALB certificate for env mockEnv: some error"),
@@ -534,6 +616,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"example.com", "foobar.com"}, mockCertARNs).Return(nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"example.com", "foobar.com"}, []string{mockCDNCertARN}).Return(mockError)
 			},
@@ -552,6 +635,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockPublicCIDRBlocksGetter.EXPECT().PublicCIDRBlocks().Return(nil, errors.New("some error"))
 			},
 			wantErr: fmt.Errorf("get public CIDR blocks information from the VPC of environment mockEnv: some error"),
@@ -567,6 +651,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: errors.New("cannot specify http.alias when application is not associated with a domain and env mockEnv doesn't import one or more certificates"),
 		},
@@ -584,6 +669,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: errors.New("cannot specify nlb.alias when application is not associated with a domain"),
 		},
@@ -607,6 +693,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"mockAlias"}, mockCertARNs).Return(nil)
 			},
 			wantErr: errors.New("cannot specify nlb.alias when env mockEnv imports one or more certificates"),
@@ -622,8 +709,9 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("", mockError)
+				m.mockAppVersionGetter.EXPECT().Version().Return("", mockError)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: fmt.Errorf("get version for app %s: %w", mockAppName, mockError),
 		},
@@ -638,8 +726,9 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v0.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v0.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: fmt.Errorf("alias is not compatible with application versions below %s", deploy.AliasLeastAppTemplateVersion),
 		},
@@ -657,8 +746,9 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v0.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v0.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: fmt.Errorf("alias is not compatible with application versions below %s", deploy.AliasLeastAppTemplateVersion),
 		},
@@ -675,8 +765,9 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: fmt.Errorf(`alias "v1.v2.mockDomain" is not supported in hosted zones managed by Copilot`),
 		},
@@ -696,8 +787,9 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantErr: fmt.Errorf(`alias "v1.v2.mockDomain" is not supported in hosted zones managed by Copilot`),
 		},
@@ -711,6 +803,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).Return(errors.New("some error"))
 			},
 			wantErr: fmt.Errorf("deploy service: some error"),
@@ -725,6 +818,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).Return(cloudformation.NewMockErrChangeSetEmpty())
 			},
 			wantErr: fmt.Errorf("deploy service: change set with name mockChangeSet for stack mockStack has no changes"),
@@ -740,6 +834,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).
 					Return(nil)
 				m.mockServiceForceUpdater.EXPECT().LastUpdatedAt(mockAppName, mockEnvName, mockName).
@@ -758,6 +853,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).
 					Return(nil)
 				m.mockServiceForceUpdater.EXPECT().LastUpdatedAt(mockAppName, mockEnvName, mockName).
@@ -775,6 +871,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).
 					Return(cloudformation.NewMockErrChangeSetEmpty())
 				m.mockServiceForceUpdater.EXPECT().LastUpdatedAt(mockAppName, mockEnvName, mockName).
@@ -796,6 +893,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).
 					Return(cloudformation.NewMockErrChangeSetEmpty())
 				m.mockServiceForceUpdater.EXPECT().LastUpdatedAt(mockAppName, mockEnvName, mockName).
@@ -821,6 +919,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).Return(nil)
 			},
 		},
@@ -843,6 +942,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"example.com", "foobar.com"}, mockCertARNs).Return(nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).Return(nil)
 			},
@@ -858,6 +958,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockServiceDeployer.EXPECT().DeployService(gomock.Any(), "mockBucket", gomock.Any()).
 					Return(cloudformation.NewMockErrChangeSetEmpty())
 				m.mockServiceForceUpdater.EXPECT().LastUpdatedAt(mockAppName, mockEnvName, mockName).
@@ -875,7 +976,8 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			defer ctrl.Finish()
 
 			m := &deployMocks{
-				mockVersionGetter:          mocks.NewMockversionGetter(ctrl),
+				mockAppVersionGetter:       mocks.NewMockversionGetter(ctrl),
+				mockEnvVersionGetter:       mocks.NewMockversionGetter(ctrl),
 				mockEndpointGetter:         mocks.NewMockendpointGetter(ctrl),
 				mockServiceDeployer:        mocks.NewMockserviceDeployer(ctrl),
 				mockServiceForceUpdater:    mocks.NewMockserviceForceUpdater(ctrl),
@@ -893,14 +995,15 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 			deployer := lbWebSvcDeployer{
 				svcDeployer: &svcDeployer{
 					workloadDeployer: &workloadDeployer{
-						name:              mockName,
-						app:               tc.inApp,
-						env:               tc.inEnvironment,
-						environmentConfig: tc.inEnvironmentConfig(),
-						resources:         mockResources,
-						deployer:          m.mockServiceDeployer,
-						endpointGetter:    m.mockEndpointGetter,
-						spinner:           m.mockSpinner,
+						name:             mockName,
+						app:              tc.inApp,
+						env:              tc.inEnvironment,
+						envConfig:        tc.inEnvironmentConfig(),
+						resources:        mockResources,
+						deployer:         m.mockServiceDeployer,
+						endpointGetter:   m.mockEndpointGetter,
+						spinner:          m.mockSpinner,
+						envVersionGetter: m.mockEnvVersionGetter,
 					},
 					newSvcUpdater: func(f func(*session.Session) serviceForceUpdater) serviceForceUpdater {
 						return m.mockServiceForceUpdater
@@ -909,7 +1012,7 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 						return mockNowTime
 					},
 				},
-				appVersionGetter:       m.mockVersionGetter,
+				appVersionGetter:       m.mockAppVersionGetter,
 				publicCIDRBlocksGetter: m.mockPublicCIDRBlocksGetter,
 				newAliasCertValidator: func(region *string) aliasCertValidator {
 					return m.mockValidator
@@ -955,8 +1058,9 @@ func TestWorkloadDeployer_DeployWorkload(t *testing.T) {
 }
 
 type deployRDSvcMocks struct {
-	mockVersionGetter  *mocks.MockversionGetter
-	mockEndpointGetter *mocks.MockendpointGetter
+	mockAppVersionGetter *mocks.MockversionGetter
+	mockEnvVersionGetter *mocks.MockversionGetter
+	mockEndpointGetter   *mocks.MockendpointGetter
 }
 
 func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
@@ -991,6 +1095,7 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 			},
 			mock: func(m *deployRDSvcMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 
 			wantErr: errors.New("alias specified when application is not associated with a domain"),
@@ -1006,8 +1111,9 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployRDSvcMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 
 			wantErr: fmt.Errorf("alias is not supported in hosted zones that are not managed by Copilot"),
@@ -1023,8 +1129,9 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployRDSvcMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 
 			wantErr: fmt.Errorf("mockEnv.mockApp.mockDomain is an environment-level alias, which is not supported yet"),
@@ -1040,8 +1147,9 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployRDSvcMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 
 			wantErr: fmt.Errorf("someSub.mockApp.mockDomain is an application-level alias, which is not supported yet"),
@@ -1057,8 +1165,9 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployRDSvcMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 
 			wantErr: fmt.Errorf("mockDomain is a root domain alias, which is not supported yet"),
@@ -1074,8 +1183,9 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 				Domain: "mockDomain",
 			},
 			mock: func(m *deployRDSvcMocks) {
-				m.mockVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
+				m.mockAppVersionGetter.EXPECT().Version().Return("v1.0.0", nil)
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			wantAlias: "v1.mockDomain",
 		},
@@ -1087,25 +1197,27 @@ func TestSvcDeployOpts_rdWebServiceStackConfiguration(t *testing.T) {
 			defer ctrl.Finish()
 
 			m := &deployRDSvcMocks{
-				mockVersionGetter:  mocks.NewMockversionGetter(ctrl),
-				mockEndpointGetter: mocks.NewMockendpointGetter(ctrl),
+				mockAppVersionGetter: mocks.NewMockversionGetter(ctrl),
+				mockEnvVersionGetter: mocks.NewMockversionGetter(ctrl),
+				mockEndpointGetter:   mocks.NewMockendpointGetter(ctrl),
 			}
 			tc.mock(m)
 
 			deployer := rdwsDeployer{
 				svcDeployer: &svcDeployer{
 					workloadDeployer: &workloadDeployer{
-						name:           mockName,
-						app:            tc.inApp,
-						env:            tc.inEnvironment,
-						resources:      mockResources,
-						endpointGetter: m.mockEndpointGetter,
+						name:             mockName,
+						app:              tc.inApp,
+						env:              tc.inEnvironment,
+						resources:        mockResources,
+						endpointGetter:   m.mockEndpointGetter,
+						envVersionGetter: m.mockEnvVersionGetter,
 					},
 					newSvcUpdater: func(f func(*session.Session) serviceForceUpdater) serviceForceUpdater {
 						return nil
 					},
 				},
-				appVersionGetter: m.mockVersionGetter,
+				appVersionGetter: m.mockAppVersionGetter,
 				rdwsMft: &manifest.RequestDrivenWebService{
 					Workload: manifest.Workload{
 						Name: aws.String(mockName),
@@ -1178,6 +1290,7 @@ func TestSvcDeployOpts_stackConfiguration_worker(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockSNSTopicsLister.EXPECT().ListSNSTopics(mockAppName, mockEnvName).Return(nil, mockError)
 			},
 			wantErr: fmt.Errorf("get SNS topics for app mockApp and environment mockEnv: %w", mockError),
@@ -1193,6 +1306,7 @@ func TestSvcDeployOpts_stackConfiguration_worker(t *testing.T) {
 			},
 			mock: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return("mockEnv.mockApp.local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockSNSTopicsLister.EXPECT().ListSNSTopics(mockAppName, mockEnvName).Return([]deploy.Topic{
 					*topic,
 				}, nil)
@@ -1206,19 +1320,21 @@ func TestSvcDeployOpts_stackConfiguration_worker(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			m := &deployMocks{
-				mockEndpointGetter:  mocks.NewMockendpointGetter(ctrl),
-				mockSNSTopicsLister: mocks.NewMocksnsTopicsLister(ctrl),
+				mockEndpointGetter:   mocks.NewMockendpointGetter(ctrl),
+				mockSNSTopicsLister:  mocks.NewMocksnsTopicsLister(ctrl),
+				mockEnvVersionGetter: mocks.NewMockversionGetter(ctrl),
 			}
 			tc.mock(m)
 
 			deployer := workerSvcDeployer{
 				svcDeployer: &svcDeployer{
 					workloadDeployer: &workloadDeployer{
-						name:           mockName,
-						app:            tc.inApp,
-						env:            tc.inEnvironment,
-						resources:      mockResources,
-						endpointGetter: m.mockEndpointGetter,
+						name:             mockName,
+						app:              tc.inApp,
+						env:              tc.inEnvironment,
+						resources:        mockResources,
+						endpointGetter:   m.mockEndpointGetter,
+						envVersionGetter: m.mockEnvVersionGetter,
 					},
 					newSvcUpdater: func(f func(*session.Session) serviceForceUpdater) serviceForceUpdater {
 						return nil
@@ -1339,6 +1455,7 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			Manifest: &manifest.BackendService{},
 			setupMocks: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return(mockAppName+".local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 		},
 		"failure if alias configured, no env certs": {
@@ -1361,6 +1478,7 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			},
 			setupMocks: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return(mockAppName+".local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			expectedErr: `cannot specify "alias" in an environment without imported certs`,
 		},
@@ -1389,6 +1507,7 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			},
 			setupMocks: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return(mockAppName+".local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"go.dev"}, []string{"mockCertARN"}).Return(errors.New("some error"))
 			},
 			expectedErr: "validate aliases against the imported certificate for env mock-env: some error",
@@ -1418,6 +1537,7 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			},
 			setupMocks: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return(mockAppName+".local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 				m.mockValidator.EXPECT().ValidateCertAliases([]string{"go.dev"}, []string{"mockCertARN"}).Return(nil)
 			},
 		},
@@ -1442,6 +1562,7 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			},
 			setupMocks: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return(mockAppName+".local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 			expectedErr: `cannot deploy service mock-svc without http.alias to environment mock-env with certificate imported`,
 		},
@@ -1458,6 +1579,7 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			Manifest: &manifest.BackendService{},
 			setupMocks: func(m *deployMocks) {
 				m.mockEndpointGetter.EXPECT().ServiceDiscoveryEndpoint().Return(mockAppName+".local", nil)
+				m.mockEnvVersionGetter.EXPECT().Version().Return("v1.42.0", nil)
 			},
 		},
 	}
@@ -1468,8 +1590,9 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			defer ctrl.Finish()
 
 			m := &deployMocks{
-				mockEndpointGetter: mocks.NewMockendpointGetter(ctrl),
-				mockValidator:      mocks.NewMockaliasCertValidator(ctrl),
+				mockEndpointGetter:   mocks.NewMockendpointGetter(ctrl),
+				mockValidator:        mocks.NewMockaliasCertValidator(ctrl),
+				mockEnvVersionGetter: mocks.NewMockversionGetter(ctrl),
 			}
 			if tc.setupMocks != nil {
 				tc.setupMocks(m)
@@ -1482,11 +1605,12 @@ func TestBackendSvcDeployer_stackConfiguration(t *testing.T) {
 			deployer := &backendSvcDeployer{
 				svcDeployer: &svcDeployer{
 					workloadDeployer: &workloadDeployer{
-						name:              mockSvcName,
-						app:               tc.App,
-						env:               tc.Env,
-						endpointGetter:    m.mockEndpointGetter,
-						environmentConfig: tc.inEnvironmentConfig(),
+						name:             mockSvcName,
+						app:              tc.App,
+						env:              tc.Env,
+						endpointGetter:   m.mockEndpointGetter,
+						envConfig:        tc.inEnvironmentConfig(),
+						envVersionGetter: m.mockEnvVersionGetter,
 					},
 					newSvcUpdater: func(f func(*session.Session) serviceForceUpdater) serviceForceUpdater {
 						return nil

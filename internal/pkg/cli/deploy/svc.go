@@ -107,6 +107,7 @@ type templater interface {
 type stackBuilder interface {
 	templater
 	Parameters() (string, error)
+	Package(addon.PackageConfig) error
 }
 
 type stackSerializer interface {
@@ -152,10 +153,6 @@ type aliasCertValidator interface {
 	ValidateCertAliases(aliases []string, certs []string) error
 }
 
-type configDescriber interface {
-	Manifest() ([]byte, error)
-}
-
 type workloadDeployer struct {
 	name          string
 	app           *config.Application
@@ -175,42 +172,26 @@ type workloadDeployer struct {
 	endpointGetter     endpointGetter
 	spinner            spinner
 	templateFS         template.Reader
-	envConfigDescriber configDescriber
+	envVersionGetter   versionGetter
 
 	// Cached variables.
 	defaultSess              *session.Session
 	defaultSessWithEnvRegion *session.Session
 	envSess                  *session.Session
 	store                    *config.Store
-	environmentConfig        *manifest.Environment
-}
-
-func (d *workloadDeployer) cachedEnvironmentConfig() (*manifest.Environment, error) {
-	if d.environmentConfig != nil {
-		return d.environmentConfig, nil
-	}
-	mft, err := d.envConfigDescriber.Manifest()
-	if err != nil {
-		return nil, fmt.Errorf("read the manifest used to deploy environment %s: %w", d.env.Name, err)
-	}
-	env, err := manifest.UnmarshalEnvironment(mft)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal the manifest used to deploy environment %s: %w", d.env.Name, err)
-	}
-	d.environmentConfig = env
-	return d.environmentConfig, nil
+	envConfig                *manifest.Environment
 }
 
 // WorkloadDeployerInput is the input to for workloadDeployer constructor.
 type WorkloadDeployerInput struct {
-	SessionProvider   *sessions.Provider
-	Name              string
-	App               *config.Application
-	Env               *config.Environment
-	ImageTag          string
-	Mft               interface{} // Interpolated, applied, and unmarshaled manifest.
-	RawMft            []byte      // Content of the manifest file without any transformations.
-	UploadAddonAssets bool
+	SessionProvider  *sessions.Provider
+	Name             string
+	App              *config.Application
+	Env              *config.Environment
+	ImageTag         string
+	Mft              interface{} // Interpolated, applied, and unmarshaled manifest.
+	RawMft           []byte      // Content of the manifest file without any transformations.
+	EnvVersionGetter versionGetter
 }
 
 // newWorkloadDeployer is the constructor for workloadDeployer.
@@ -243,15 +224,14 @@ func newWorkloadDeployer(in *WorkloadDeployerInput) (*workloadDeployer, error) {
 		return nil, fmt.Errorf("get application %s resources from region %s: %w", in.App.Name, in.Env.Region, err)
 	}
 
-	s3Client := s3.New(envSession)
-	var addonsSvc stackBuilder
-	if in.UploadAddonAssets {
-		addonsSvc, err = addon.NewPackager(in.Name, resources.S3Bucket, s3Client)
-	} else {
-		addonsSvc, err = addon.New(in.Name)
-	}
+	var addons stackBuilder
+	addons, err = addon.Parse(in.Name, ws)
 	if err != nil {
-		return nil, fmt.Errorf("initiate addons service: %w", err)
+		var notFoundErr *addon.ErrAddonsNotFound
+		if !errors.As(err, &notFoundErr) {
+			return nil, fmt.Errorf("parse addons stack: %w", err)
+		}
+		addons = nil // so that we can check for no addons with nil comparison
 	}
 
 	repoName := fmt.Sprintf("%s/%s", in.App.Name, in.Name)
@@ -266,6 +246,16 @@ func newWorkloadDeployer(in *WorkloadDeployerInput) (*workloadDeployer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initiate env describer: %w", err)
 	}
+
+	mft, err := envDescriber.Manifest()
+	if err != nil {
+		return nil, fmt.Errorf("read the manifest used to deploy environment %s: %w", in.Env.Name, err)
+	}
+	envConfig, err := manifest.UnmarshalEnvironment(mft)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal the manifest used to deploy environment %s: %w", in.Env.Name, err)
+	}
+
 	return &workloadDeployer{
 		name:               in.Name,
 		app:                in.App,
@@ -274,27 +264,32 @@ func newWorkloadDeployer(in *WorkloadDeployerInput) (*workloadDeployer, error) {
 		resources:          resources,
 		workspacePath:      workspacePath,
 		fs:                 &afero.Afero{Fs: afero.NewOsFs()},
-		s3Client:           s3Client,
-		addons:             addonsSvc,
+		s3Client:           s3.New(envSession),
+		addons:             addons,
 		imageBuilderPusher: imageBuilderPusher,
 		deployer:           cloudformation.New(envSession, cloudformation.WithProgressTracker(os.Stderr)),
 		endpointGetter:     envDescriber,
 		spinner:            termprogress.NewSpinner(log.DiagnosticWriter),
 		templateFS:         template.New(),
-		envConfigDescriber: envDescriber,
+		envVersionGetter:   in.EnvVersionGetter,
 
 		defaultSess:              defaultSession,
 		defaultSessWithEnvRegion: defaultSessEnvRegion,
 		envSess:                  envSession,
 		store:                    store,
+		envConfig:                envConfig,
 
 		mft:    in.Mft,
 		rawMft: in.RawMft,
 	}, nil
 }
 
-// Addons returns this workloads AddonsTemplate.
+// AddonsTemplate returns this workload's addon template.
 func (w *workloadDeployer) AddonsTemplate() (string, error) {
+	if w.addons == nil {
+		return "", nil
+	}
+
 	return w.addons.Template()
 }
 
@@ -874,9 +869,8 @@ func (d *workloadDeployer) uploadContainerImage(imgBuilderPusher imageBuilderPus
 }
 
 type uploadArtifactsToS3Input struct {
-	fs        fileReader
-	uploader  uploader
-	templater templater
+	fs       fileReader
+	uploader uploader
 }
 
 type uploadArtifactsToS3Output struct {
@@ -892,10 +886,7 @@ func (d *workloadDeployer) uploadArtifactsToS3(in *uploadArtifactsToS3Input) (up
 	if err != nil {
 		return uploadArtifactsToS3Output{}, err
 	}
-	addonsURL, err := d.pushAddonsTemplateToS3Bucket(&pushAddonsTemplateToS3BucketInput{
-		templater: in.templater,
-		uploader:  in.uploader,
-	})
+	addonsURL, err := d.pushAddonsTemplateToS3Bucket()
 	if err != nil {
 		return uploadArtifactsToS3Output{}, err
 	}
@@ -911,9 +902,8 @@ func (d *workloadDeployer) uploadArtifacts(customResources customResourcesFunc) 
 		return nil, err
 	}
 	s3Artifacts, err := d.uploadArtifactsToS3(&uploadArtifactsToS3Input{
-		fs:        d.fs,
-		uploader:  d.s3Client,
-		templater: d.addons,
+		fs:       d.fs,
+		uploader: d.s3Client,
 	})
 	if err != nil {
 		return nil, err
@@ -970,26 +960,32 @@ func (d *workloadDeployer) pushEnvFileToS3Bucket(in *pushEnvFilesToS3BucketInput
 	return envFileARN, nil
 }
 
-type pushAddonsTemplateToS3BucketInput struct {
-	templater templater
-	uploader  uploader
-}
+func (d *workloadDeployer) pushAddonsTemplateToS3Bucket() (string, error) {
+	if d.addons == nil {
+		return "", nil
+	}
 
-func (d *workloadDeployer) pushAddonsTemplateToS3Bucket(in *pushAddonsTemplateToS3BucketInput) (string, error) {
-	tmpl, err := in.templater.Template()
+	config := addon.PackageConfig{
+		Bucket:        d.resources.S3Bucket,
+		Uploader:      d.s3Client,
+		WorkspacePath: d.workspacePath,
+		FS:            afero.NewOsFs(),
+	}
+	if err := d.addons.Package(config); err != nil {
+		return "", fmt.Errorf("package addons: %w", err)
+	}
+
+	tmpl, err := d.addons.Template()
 	if err != nil {
-		var notFoundErr *addon.ErrAddonsNotFound
-		if errors.As(err, &notFoundErr) {
-			// addons doesn't exist for service, the url is empty.
-			return "", nil
-		}
 		return "", fmt.Errorf("retrieve addons template: %w", err)
 	}
+
 	reader := strings.NewReader(tmpl)
-	url, err := in.uploader.Upload(d.resources.S3Bucket, artifactpath.Addons(d.name, []byte(tmpl)), reader)
+	url, err := d.s3Client.Upload(d.resources.S3Bucket, artifactpath.Addons(d.name, []byte(tmpl)), reader)
 	if err != nil {
 		return "", fmt.Errorf("put addons artifact to bucket %s: %w", d.resources.S3Bucket, err)
 	}
+
 	return url, nil
 }
 
@@ -997,6 +993,10 @@ func (d *workloadDeployer) runtimeConfig(in *StackRuntimeConfiguration) (*stack.
 	endpoint, err := d.endpointGetter.ServiceDiscoveryEndpoint()
 	if err != nil {
 		return nil, fmt.Errorf("get service discovery endpoint: %w", err)
+	}
+	envVersion, err := d.envVersionGetter.Version()
+	if err != nil {
+		return nil, fmt.Errorf("get version of environment %q: %w", d.env.Name, err)
 	}
 	if in.ImageDigest == nil {
 		return &stack.RuntimeConfig{
@@ -1007,6 +1007,7 @@ func (d *workloadDeployer) runtimeConfig(in *StackRuntimeConfiguration) (*stack.
 			AccountID:                d.env.AccountID,
 			Region:                   d.env.Region,
 			CustomResourcesURL:       in.CustomResourceURLs,
+			EnvVersion:               envVersion,
 		}, nil
 	}
 	return &stack.RuntimeConfig{
@@ -1022,6 +1023,7 @@ func (d *workloadDeployer) runtimeConfig(in *StackRuntimeConfiguration) (*stack.
 		AccountID:                d.env.AccountID,
 		Region:                   d.env.Region,
 		CustomResourcesURL:       in.CustomResourceURLs,
+		EnvVersion:               envVersion,
 	}, nil
 }
 
@@ -1049,13 +1051,9 @@ func (d *lbWebSvcDeployer) stackConfiguration(in *StackRuntimeConfiguration) (*s
 		}
 		opts = append(opts, stack.WithNLB(cidrBlocks))
 	}
-	envConfig, err := d.cachedEnvironmentConfig()
-	if err != nil {
-		return nil, err
-	}
 	conf, err := stack.NewLoadBalancedWebService(stack.LoadBalancedWebServiceConfig{
 		App:           d.app,
-		EnvManifest:   envConfig,
+		EnvManifest:   d.envConfig,
 		Manifest:      d.lbMft,
 		RawManifest:   d.rawMft,
 		RuntimeConfig: *rc,
@@ -1081,14 +1079,9 @@ func (d *backendSvcDeployer) stackConfiguration(in *StackRuntimeConfiguration) (
 	if err := d.validateALBRuntime(); err != nil {
 		return nil, err
 	}
-
-	envConfig, err := d.cachedEnvironmentConfig()
-	if err != nil {
-		return nil, err
-	}
 	conf, err := stack.NewBackendService(stack.BackendServiceConfig{
 		App:           d.app,
-		EnvManifest:   envConfig,
+		EnvManifest:   d.envConfig,
 		Manifest:      d.backendMft,
 		RawManifest:   d.rawMft,
 		RuntimeConfig: *rc,
@@ -1344,10 +1337,7 @@ func (d *backendSvcDeployer) validateALBRuntime() error {
 	if d.backendMft.RoutingRule.IsEmpty() {
 		return nil
 	}
-	hasImportedCerts, err := d.envHasImportedCertificates()
-	if err != nil {
-		return err
-	}
+	hasImportedCerts := len(d.envConfig.HTTPConfig.Private.Certificates) != 0
 	switch {
 	case d.backendMft.RoutingRule.Alias.IsEmpty() && hasImportedCerts:
 		return &errSvcWithNoALBAliasDeployingToEnvWithImportedCerts{
@@ -1365,26 +1355,15 @@ func (d *backendSvcDeployer) validateALBRuntime() error {
 		return fmt.Errorf("convert aliases to string slice: %w", err)
 	}
 
-	if err := d.aliasCertValidator.ValidateCertAliases(aliases, d.environmentConfig.HTTPConfig.Private.Certificates); err != nil {
+	if err := d.aliasCertValidator.ValidateCertAliases(aliases, d.envConfig.HTTPConfig.Private.Certificates); err != nil {
 		return fmt.Errorf("validate aliases against the imported certificate for env %s: %w", d.env.Name, err)
 	}
 
 	return nil
 }
 
-func (d *backendSvcDeployer) envHasImportedCertificates() (bool, error) {
-	env, err := d.cachedEnvironmentConfig()
-	if err != nil {
-		return false, err
-	}
-	return len(env.HTTPConfig.Private.Certificates) != 0, nil
-}
 func (d *lbWebSvcDeployer) validateALBRuntime() error {
-	hasImportedCerts, err := d.envHasImportedCertificates()
-	if err != nil {
-		return err
-	}
-
+	hasImportedCerts := len(d.envConfig.HTTPConfig.Public.Certificates) != 0
 	if d.lbMft.RoutingRule.Alias.IsEmpty() {
 		if hasImportedCerts {
 			return &errSvcWithNoALBAliasDeployingToEnvWithImportedCerts{
@@ -1394,16 +1373,27 @@ func (d *lbWebSvcDeployer) validateALBRuntime() error {
 		}
 		return nil
 	}
+	importedHostedZones := d.lbMft.RoutingRule.Alias.HostedZones()
+	if len(importedHostedZones) != 0 {
+		if !hasImportedCerts {
+			return fmt.Errorf("cannot specify alias hosted zones %v when no certificates are imported in environment %q", importedHostedZones, d.env.Name)
+		}
+		if d.envConfig.CDNEnabled() {
+			return &errSvcWithALBAliasHostedZoneWithCDNEnabled{
+				envName: d.env.Name,
+			}
+		}
+	}
 	if hasImportedCerts {
 		aliases, err := d.lbMft.RoutingRule.Alias.ToStringSlice()
 		if err != nil {
 			return fmt.Errorf("convert aliases to string slice: %w", err)
 		}
 
-		cdnCert := d.environmentConfig.CDNConfig.Config.Certificate
+		cdnCert := d.envConfig.CDNConfig.Config.Certificate
 		albCertValidator := d.newAliasCertValidator(nil)
 		cfCertValidator := d.newAliasCertValidator(aws.String(cloudfront.CertRegion))
-		if err := albCertValidator.ValidateCertAliases(aliases, d.environmentConfig.HTTPConfig.Public.Certificates); err != nil {
+		if err := albCertValidator.ValidateCertAliases(aliases, d.envConfig.HTTPConfig.Public.Certificates); err != nil {
 			return fmt.Errorf("validate aliases against the imported public ALB certificate for env %s: %w", d.env.Name, err)
 		}
 		if cdnCert != nil {
@@ -1429,10 +1419,7 @@ func (d *lbWebSvcDeployer) validateNLBRuntime() error {
 		return nil
 	}
 
-	hasImportedCerts, err := d.envHasImportedCertificates()
-	if err != nil {
-		return err
-	}
+	hasImportedCerts := len(d.envConfig.HTTPConfig.Public.Certificates) != 0
 	if hasImportedCerts {
 		return fmt.Errorf("cannot specify nlb.alias when env %s imports one or more certificates", d.env.Name)
 	}
@@ -1445,14 +1432,6 @@ func (d *lbWebSvcDeployer) validateNLBRuntime() error {
 		return err
 	}
 	return validateLBWSAlias(d.lbMft.NLBConfig.Aliases, d.app, d.env.Name)
-}
-
-func (d *lbWebSvcDeployer) envHasImportedCertificates() (bool, error) {
-	env, err := d.cachedEnvironmentConfig()
-	if err != nil {
-		return false, err
-	}
-	return len(env.HTTPConfig.Public.Certificates) != 0, nil
 }
 
 func validateLBWSAlias(aliases manifest.Alias, app *config.Application, envName string) error {

@@ -32,8 +32,8 @@ EnvironmentManagerRole:
 {{- range $arn := .PrivateHTTPConfig.ImportedCertARNs}}
           - "{{$arn}}"
 {{- end}}
-{{- if and .CDNConfig .CDNConfig.ViewerCertificate}}
-          - "{{.CDNConfig.ViewerCertificate}}"
+{{- if and .CDNConfig .CDNConfig.ImportedCertificate}}
+          - "{{.CDNConfig.ImportedCertificate}}"
 {{- end}}
 {{- end}}
         - Sid: CloudwatchLogs
@@ -95,6 +95,7 @@ EnvironmentManagerRole:
           Effect: Allow
           Action:
             - "states:StartExecution"
+            - "states:DescribeStateMachine"
           Resource:
             - !Sub "arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AppName}-${EnvironmentName}-*"
         - Sid: CloudFormation

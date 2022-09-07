@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.2
-	github.com/aws/aws-sdk-go v1.44.70
+	github.com/aws/aws-sdk-go v1.44.86
 	github.com/briandowns/spinner v1.19.0
 	github.com/compose-spec/compose-go v1.4.0
 	github.com/docker/go-units v0.4.0
@@ -18,7 +18,7 @@ require (
 	github.com/lnquy/cron v1.1.1
 	github.com/moby/buildkit v0.9.3
 	github.com/onsi/ginkgo v1.16.5
-	github.com/onsi/gomega v1.20.0
+	github.com/onsi/gomega v1.20.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/afero v1.9.2
 	github.com/spf13/cobra v1.5.0

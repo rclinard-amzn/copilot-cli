@@ -47,19 +47,27 @@ func (r *RoutingRuleConfigOrBool) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+func (r RoutingRuleConfigOrBool) MarshalYAML() (interface{}, error) {
+	if !r.RoutingRuleConfiguration.IsEmpty() {
+		return r.RoutingRuleConfiguration, nil
+	}
+
+	return r.Enabled, nil
+}
+
 // RoutingRuleConfiguration holds the path to route requests to the service.
 type RoutingRuleConfiguration struct {
-	Path                *string                 `yaml:"path"`
-	ProtocolVersion     *string                 `yaml:"version"`
-	HealthCheck         HealthCheckArgsOrString `yaml:"healthcheck"`
-	Stickiness          *bool                   `yaml:"stickiness"`
-	Alias               Alias                   `yaml:"alias"`
-	DeregistrationDelay *time.Duration          `yaml:"deregistration_delay"`
+	Path                *string                 `yaml:"path,omitempty"`
+	ProtocolVersion     *string                 `yaml:"version,omitempty"`
+	HealthCheck         HealthCheckArgsOrString `yaml:"healthcheck,omitempty"`
+	Stickiness          *bool                   `yaml:"stickiness,omitempty"`
+	Alias               Alias                   `yaml:"alias,omitempty"`
+	DeregistrationDelay *time.Duration          `yaml:"deregistration_delay,omitempty"`
 	// TargetContainer is the container load balancer routes traffic to.
-	TargetContainer          *string `yaml:"target_container"`
-	TargetContainerCamelCase *string `yaml:"targetContainer"` // "targetContainerCamelCase" for backwards compatibility
-	AllowedSourceIps         []IPNet `yaml:"allowed_source_ips"`
-	HostedZone               *string `yaml:"hosted_zone"`
+	TargetContainer          *string `yaml:"target_container,omitempty"`
+	TargetContainerCamelCase *string `yaml:"targetContainer,omitempty"` // "targetContainerCamelCase" for backwards compatibility
+	AllowedSourceIps         []IPNet `yaml:"allowed_source_ips,omitempty"`
+	HostedZone               *string `yaml:"hosted_zone,omitempty"`
 }
 
 // GetTargetContainer returns the correct target container value, if set.
@@ -102,6 +110,17 @@ type Alias struct {
 	StringSliceOrString StringSliceOrString
 }
 
+// HostedZones returns all the hosted zones.
+func (a *Alias) HostedZones() []string {
+	var hostedZones []string
+	for _, alias := range a.AdvancedAliases {
+		if alias.HostedZone != nil {
+			hostedZones = append(hostedZones, *alias.HostedZone)
+		}
+	}
+	return hostedZones
+}
+
 // IsEmpty returns empty if Alias is empty.
 func (a *Alias) IsEmpty() bool {
 	return len(a.AdvancedAliases) == 0 && a.StringSliceOrString.isEmpty()
@@ -129,6 +148,14 @@ func (a *Alias) UnmarshalYAML(value *yaml.Node) error {
 		return errUnmarshalAlias
 	}
 	return nil
+}
+
+func (a Alias) MarshalYAML() (interface{}, error) {
+	if len(a.AdvancedAliases) != 0 {
+		return a.AdvancedAliases, nil
+	}
+
+	return a.StringSliceOrString, nil
 }
 
 // ToStringSlice converts an Alias to a slice of string.

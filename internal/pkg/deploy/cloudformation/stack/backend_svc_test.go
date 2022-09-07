@@ -534,10 +534,6 @@ func TestBackendService_TemplateAndParamsGeneration(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			addons := mocks.NewMockaddons(ctrl)
-			addons.EXPECT().Parameters().Return("", &addon.ErrAddonsNotFound{})
-			addons.EXPECT().Template().Return("", &addon.ErrAddonsNotFound{})
-
 			// parse files
 			manifestBytes, err := ioutil.ReadFile(tc.ManifestPath)
 			require.NoError(t, err)
@@ -565,8 +561,8 @@ func TestBackendService_TemplateAndParamsGeneration(t *testing.T) {
 				Manifest:    mft.(*manifest.BackendService),
 				RuntimeConfig: RuntimeConfig{
 					ServiceDiscoveryEndpoint: fmt.Sprintf("%s.%s.local", envName, appName),
+					EnvVersion:               "v1.42.0",
 				},
-				Addons: addons,
 			})
 			require.NoError(t, err)
 

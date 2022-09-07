@@ -4,6 +4,8 @@
 package manifest
 
 import (
+	"fmt"
+	"gopkg.in/yaml.v3"
 	"testing"
 
 	"github.com/aws/copilot-cli/internal/pkg/config"
@@ -386,6 +388,57 @@ network:
 				},
 			},
 		},
+		"unmarshal with enable access logs": {
+			inContent: `name: prod
+type: Environment
+
+http:
+  public:
+    access_logs: true`,
+			wantedStruct: &Environment{
+				Workload: Workload{
+					Name: aws.String("prod"),
+					Type: aws.String("Environment"),
+				},
+				EnvironmentConfig: EnvironmentConfig{
+					HTTPConfig: EnvironmentHTTPConfig{
+						Public: PublicHTTPConfig{
+							ELBAccessLogs: ELBAccessLogsArgsOrBool{
+								Enabled: aws.Bool(true),
+							},
+						},
+					},
+				},
+			},
+		},
+		"unmarshal with advanced access logs": {
+			inContent: `name: prod
+type: Environment
+
+http:
+  public:
+    access_logs:
+      bucket_name: testbucket
+      prefix: prefix`,
+			wantedStruct: &Environment{
+				Workload: Workload{
+					Name: aws.String("prod"),
+					Type: aws.String("Environment"),
+				},
+				EnvironmentConfig: EnvironmentConfig{
+					HTTPConfig: EnvironmentHTTPConfig{
+						Public: PublicHTTPConfig{
+							ELBAccessLogs: ELBAccessLogsArgsOrBool{
+								AdvancedConfig: ELBAccessLogsArgs{
+									Prefix:     aws.String("prefix"),
+									BucketName: aws.String("testbucket"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 		"unmarshal with observability": {
 			inContent: `name: prod
 type: Environment
@@ -471,6 +524,13 @@ http:
 			} else {
 				require.NoError(t, gotErr)
 				require.Equal(t, tc.wantedStruct, got)
+
+				roundtrip, err := yaml.Marshal(tc.wantedStruct)
+				require.NoError(t, err)
+				fmt.Printf("re-marshalled form:\n%s\n", string(roundtrip))
+				var rt Environment
+				require.NoError(t, yaml.Unmarshal(roundtrip, &rt))
+				require.Equal(t, tc.wantedStruct, &rt)
 			}
 		})
 	}
@@ -876,6 +936,68 @@ func TestEnvironmentConfig_CDNEnabled(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tc.in.CDNEnabled()
 			require.Equal(t, tc.wanted, got)
+		})
+	}
+}
+
+func TestEnvironmentConfig_ELBAccessLogs(t *testing.T) {
+	testCases := map[string]struct {
+		in            EnvironmentConfig
+		wantedFlag    bool
+		wantedConfigs *ELBAccessLogsArgs
+	}{
+		"enabled via bool": {
+			in: EnvironmentConfig{
+				HTTPConfig: EnvironmentHTTPConfig{
+					Public: PublicHTTPConfig{
+						ELBAccessLogs: ELBAccessLogsArgsOrBool{
+							Enabled: aws.Bool(true),
+						},
+					},
+				},
+			},
+			wantedFlag:    true,
+			wantedConfigs: nil,
+		},
+		"disabled via bool": {
+			in: EnvironmentConfig{
+				HTTPConfig: EnvironmentHTTPConfig{
+					Public: PublicHTTPConfig{
+						ELBAccessLogs: ELBAccessLogsArgsOrBool{
+							Enabled: aws.Bool(false),
+						},
+					},
+				},
+			},
+			wantedFlag:    false,
+			wantedConfigs: nil,
+		},
+		"advanced access logs config": {
+			in: EnvironmentConfig{
+				HTTPConfig: EnvironmentHTTPConfig{
+					Public: PublicHTTPConfig{
+						ELBAccessLogs: ELBAccessLogsArgsOrBool{
+							AdvancedConfig: ELBAccessLogsArgs{
+								Prefix:     aws.String("prefix"),
+								BucketName: aws.String("bucketname"),
+							},
+						},
+					},
+				},
+			},
+			wantedFlag: true,
+			wantedConfigs: &ELBAccessLogsArgs{
+				BucketName: aws.String("bucketname"),
+				Prefix:     aws.String("prefix"),
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			elbAccessLogs, flag := tc.in.ELBAccessLogs()
+			require.Equal(t, tc.wantedFlag, flag)
+			require.Equal(t, tc.wantedConfigs, elbAccessLogs)
 		})
 	}
 }

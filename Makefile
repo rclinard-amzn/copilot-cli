@@ -28,6 +28,9 @@ build: package-custom-resources compile-local package-custom-resources-clean
 .PHONY: build-e2e
 build-e2e: package-custom-resources compile-linux package-custom-resources-clean
 
+.PHONY: build-regression
+build-regression: package-custom-resources compile-linux package-custom-resources-clean
+
 .PHONY: release
 release: package-custom-resources compile-darwin compile-linux compile-windows package-custom-resources-clean
 
@@ -64,7 +67,7 @@ test: run-unit-test custom-resource-tests
 custom-resource-tests: tools
 	@echo "Running custom resource unit tests" &&\
 	cd ${SOURCE_CUSTOM_RESOURCES} &&\
-	npm test &&\
+	npm test -- --coverage &&\
 	cd ${ROOT_SRC_DIR}
 
 # Minifies the resources in cf-custom-resources/lib and copies
@@ -125,9 +128,22 @@ e2e-dryrun: build # Sample command "make e2e-dryrun test=multi-env-app" to run t
 	@echo "Install ginkgo"
 	go install github.com/onsi/ginkgo/ginkgo@latest
 	@echo "Setup credentials"
-	./scripts/e2e-dryrun-creds.sh
+	./scripts/dryrun-creds.sh e2e
 	@echo "Run the $(test) test"
 	cd e2e/$(test) && DRYRUN=true ginkgo -v -r
+	cd -
+
+# Examples:
+# REGRESSION_TEST_FROM_PATH=/usr/local/bin/copilot make regression-dryrun test=multi-svc-app
+# REGRESSION_TEST_FROM_PATH=/usr/local/bin/copilot-v1.18.0 REGRESSION_TO_FROM_PATH=/usr/local/bin/copilot-v1.19.0 make regression-dryrun test=multi-svc-app
+.PHONY: regression-dryrun
+regression-dryrun: build
+	@echo "Install ginkgo"
+	go install github.com/onsi/ginkgo/ginkgo@latest
+	@echo "Setup credentials"
+	./scripts/dryrun-creds.sh regression
+	@echo "Run the $(test) test"
+	cd regression/$(test) && DRYRUN=true ginkgo -v -r
 	cd -
 
 .PHONY: tools
@@ -207,6 +223,7 @@ gen-mocks: tools
 	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/cli/list/mocks/mock_list.go -source=./internal/pkg/cli/list/list.go
 	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/cli/deploy/mocks/mock_svc.go -source=./internal/pkg/cli/deploy/svc.go
 	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/cli/deploy/mocks/mock_env.go -source=./internal/pkg/cli/deploy/env.go
+	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/cli/deploy/patch/mocks/mock_env.go -source=./internal/pkg/cli/deploy/patch/env.go
 	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/initialize/mocks/mock_workload.go -source=./internal/pkg/initialize/workload.go
 	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/ecs/mocks/mock_ecs.go -source=./internal/pkg/ecs/ecs.go
 	${GOBIN}/mockgen -package=mocks -destination=./internal/pkg/apprunner/mocks/mock_apprunner.go -source=./internal/pkg/apprunner/apprunner.go

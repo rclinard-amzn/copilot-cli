@@ -4,6 +4,7 @@
 package manifest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -46,6 +47,42 @@ func TestRoutingRuleConfigOrBool_Disabled(t *testing.T) {
 
 			// THEN
 			require.Equal(t, tc.wanted, got)
+		})
+	}
+}
+
+func TestAlias_HostedZones(t *testing.T) {
+	testCases := map[string]struct {
+		in     Alias
+		wanted []string
+	}{
+		"no hosted zone": {
+			in: Alias{
+				AdvancedAliases: []AdvancedAlias{},
+			},
+			wanted: []string{},
+		},
+		"with hosted zones": {
+			in: Alias{
+				AdvancedAliases: []AdvancedAlias{
+					{
+						HostedZone: aws.String("mockHostedZone1"),
+					},
+					{
+						HostedZone: aws.String("mockHostedZone2"),
+					},
+				},
+			},
+			wanted: []string{"mockHostedZone1", "mockHostedZone2"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// WHEN
+			got := tc.in.HostedZones()
+			// THEN
+			require.ElementsMatch(t, tc.wanted, got)
 		})
 	}
 }
@@ -122,6 +159,13 @@ func TestAlias_UnmarshalYAML(t *testing.T) {
 				// check memberwise dereferenced pointer equality
 				require.Equal(t, tc.wantedStruct.StringSliceOrString, r.Alias.StringSliceOrString)
 				require.Equal(t, tc.wantedStruct.AdvancedAliases, r.Alias.AdvancedAliases)
+
+				roundtrip, err := yaml.Marshal(tc.wantedStruct)
+				require.NoError(t, err)
+				fmt.Printf("re-marshalled form:\n%s\n", string(roundtrip))
+				var rt Alias
+				require.NoError(t, yaml.Unmarshal(roundtrip, &rt))
+				require.Equal(t, tc.wantedStruct, rt)
 			}
 		})
 	}

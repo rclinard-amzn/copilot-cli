@@ -10,6 +10,7 @@ EnvControllerAction:
 {{- end}}
     EnvStack: !Sub '${AppName}-${EnvName}'
     Parameters: {{ envControllerParams . }}
+    EnvVersion: {{.EnvVersion}}
 
 EnvControllerFunction:
   Type: AWS::Lambda::Function
@@ -23,7 +24,7 @@ EnvControllerFunction:
     Timeout: 900
     MemorySize: 512
     Role: !GetAtt 'EnvControllerRole.Arn'
-    Runtime: nodejs12.x
+    Runtime: nodejs16.x
 
 EnvControllerRole:
   Metadata:

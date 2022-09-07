@@ -339,7 +339,7 @@ Resources: # If a bucket URL is specified, that means the template exists.
       Timeout: 600
       MemorySize: 512
       Role: !GetAtt 'DynamicDesiredCountFunctionRole.Arn'
-      Runtime: nodejs12.x
+      Runtime: nodejs16.x
   DynamicDesiredCountFunctionRole:
     Metadata:
       'aws:copilot:description': "An IAM Role for describing number of running tasks in your ECS service"
@@ -436,6 +436,7 @@ Resources: # If a bucket URL is specified, that means the template exists.
       Aliases: ["example.com"]
       EnvStack: !Sub '${AppName}-${EnvName}'
       Parameters: [ALBWorkloads, Aliases]
+      EnvVersion: v1.42.0
   EnvControllerFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -446,7 +447,7 @@ Resources: # If a bucket URL is specified, that means the template exists.
       Timeout: 900
       MemorySize: 512
       Role: !GetAtt 'EnvControllerRole.Arn'
-      Runtime: nodejs12.x
+      Runtime: nodejs16.x
   EnvControllerRole:
     Metadata:
       'aws:copilot:description': "An IAM role to update your environment stack"
@@ -560,7 +561,7 @@ Resources: # If a bucket URL is specified, that means the template exists.
       Timeout: 600
       MemorySize: 512
       Role: !GetAtt 'RulePriorityFunctionRole.Arn'
-      Runtime: nodejs12.x
+      Runtime: nodejs16.x
   RulePriorityFunctionRole:
     Type: AWS::IAM::Role
     Metadata:
