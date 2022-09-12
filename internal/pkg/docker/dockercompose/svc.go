@@ -220,8 +220,11 @@ func convertTaskConfig(service *compose.ServiceConfig, otherSvcs compose.Service
 		Count: manifest.Count{
 			Value: aws.Int(1),
 		},
-		CPU:     aws.Int(256),
-		Memory:  aws.Int(512),
+		CPU:    aws.Int(256),
+		Memory: aws.Int(512),
+		ExecuteCommand: manifest.ExecuteCommand{
+			Enable: aws.Bool(true),
+		},
 		Storage: *storage,
 	}
 

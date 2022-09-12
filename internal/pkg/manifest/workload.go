@@ -119,7 +119,7 @@ type Workload struct {
 
 // Image represents the workload's container image.
 type Image struct {
-	Build        BuildArgsOrString `yaml:"build"`                 // Build an image from a Dockerfile.
+	Build        BuildArgsOrString `yaml:"build,omitempty"`       // Build an image from a Dockerfile.
 	Location     *string           `yaml:"location,omitempty"`    // Use an existing image instead.
 	Credentials  *string           `yaml:"credentials,omitempty"` // ARN of the secret containing the private repository credentials.
 	DockerLabels map[string]string `yaml:"labels,omitempty"`      // Apply Docker labels to the container at runtime.
@@ -129,7 +129,7 @@ type Image struct {
 // DependsOn represents container dependency for a container.
 type DependsOn map[string]string
 
-// UnmarshalYAML overrides the default YAML unmarshaling logic for the Image
+/*// UnmarshalYAML overrides the default YAML unmarshaling logic for the Image
 // struct, allowing it to perform more complex unmarshaling behavior.
 // This method implements the yaml.Unmarshaler (v3) interface.
 func (i *Image) UnmarshalYAML(value *yaml.Node) error {
@@ -145,7 +145,7 @@ func (i *Image) UnmarshalYAML(value *yaml.Node) error {
 		}
 	}
 	return nil
-}
+}*/
 
 // GetLocation returns the location of the image.
 func (i Image) GetLocation() string {

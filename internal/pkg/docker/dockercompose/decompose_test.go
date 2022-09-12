@@ -5,10 +5,12 @@ package dockercompose
 
 import (
 	"errors"
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/copilot-cli/internal/pkg/manifest"
 	compose "github.com/compose-spec/compose-go/types"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,6 +56,38 @@ func runDecomposeTests(t *testing.T, testCases map[string]decomposeTest) {
 					require.Equal(t, tc.wantBs, &svc.BackendSvc.BackendServiceConfig)
 				}
 			}
+		})
+	}
+}
+
+func TestDecomposeService_Demo(t *testing.T) {
+	testCases := []string{
+		"frontend",
+		"backend",
+		"mongo",
+	}
+
+	cfg, err := os.ReadFile(filepath.Join("testdata", "react-express-mongo-simple.yml"))
+	workDir := "testdata"
+	require.NoError(t, err)
+
+	for _, name := range testCases {
+		t.Run(name, func(t *testing.T) {
+			svc, ign, err := DecomposeService(cfg, name, workDir)
+			require.NoError(t, err)
+			require.Equal(t, 0, len(ign))
+
+			var mft []byte
+
+			if svc.LbSvc != nil {
+				mft, err = yaml.Marshal(svc.LbSvc)
+			} else {
+				mft, err = yaml.Marshal(svc.BackendSvc)
+			}
+
+			require.NoError(t, err)
+			fmt.Println(string(mft))
+			require.Failf(t, "no error", "copy this manifest file for the demo")
 		})
 	}
 }
@@ -147,6 +181,18 @@ func TestDecomposeService_General(t *testing.T) {
 			svcName:  "mongo",
 
 			wantError: errors.New(`"services.mongo" relies on fatally-unsupported Compose keys: networks`),
+		},
+		"react-express-mongo-simple frontend": {
+			filename: "react-express-mongo-simple.yml",
+			svcName:  "frontend",
+		},
+		"react-express-mongo-simple backend": {
+			filename: "react-express-mongo-simple.yml",
+			svcName:  "backend",
+		},
+		"react-express-mongo-simple mongo": {
+			filename: "react-express-mongo-simple.yml",
+			svcName:  "mongo",
 		},
 		"unrecognized-field-name": {
 			filename: "unrecognized-field-name.yml",
