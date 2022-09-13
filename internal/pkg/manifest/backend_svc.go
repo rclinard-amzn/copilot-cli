@@ -51,7 +51,7 @@ func NewBackendService(props BackendServiceProps) *BackendService {
 	// Apply overrides.
 	svc.Name = stringP(props.Name)
 	svc.BackendServiceConfig.ImageConfig.Image.Location = stringP(props.Image)
-	svc.BackendServiceConfig.ImageConfig.Image.Build.BuildArgs.Dockerfile = stringP(props.Dockerfile)
+	svc.BackendServiceConfig.ImageConfig.Image.Build.BuildString = stringP(props.Dockerfile)
 	svc.BackendServiceConfig.ImageConfig.Port = uint16P(props.Port)
 	svc.BackendServiceConfig.ImageConfig.HealthCheck = props.HealthCheck
 	svc.BackendServiceConfig.Platform = props.Platform
@@ -66,8 +66,9 @@ func NewBackendService(props BackendServiceProps) *BackendService {
 // Implements the encoding.BinaryMarshaler interface.
 func (s *BackendService) MarshalBinary() ([]byte, error) {
 	content, err := template.New().Parse(backendSvcManifestPath, *s, template.WithFuncs(map[string]interface{}{
-		"fmtSlice":   template.FmtSliceFunc,
-		"quoteSlice": template.QuoteSliceFunc,
+		"fmtSlice":         template.FmtSliceFunc,
+		"quoteSlice":       template.QuoteSliceFunc,
+		"marshalYAMLField": template.MarshalYAMLField,
 	}))
 	if err != nil {
 		return nil, err

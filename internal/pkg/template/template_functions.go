@@ -4,8 +4,10 @@
 package template
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"regexp"
 	"strconv"
 	"strings"
@@ -103,6 +105,34 @@ func QuoteSliceFunc(elems []string) []string {
 		quotedElems[i] = strconv.Quote(el)
 	}
 	return quotedElems
+}
+
+func MarshalYAMLField(spaces int, value any) (string, error) {
+	wrapper := struct {
+		V any
+	}{
+		V: value,
+	}
+
+	var buf bytes.Buffer
+	ye := yaml.NewEncoder(&buf)
+	ye.SetIndent(2)
+	if err := ye.Encode(wrapper); err != nil {
+		return "", err
+	}
+	if err := ye.Close(); err != nil {
+		return "", err
+	}
+
+	str := strings.TrimSpace(buf.String())
+	str = str[len("v:"):]
+
+	// from https://github.com/Masterminds/sprig/blob/48e6b77026913419ba1a4694dde186dc9c4ad74d/strings.go#L109-L112
+	// modified to not indent the first line
+	pad := strings.Repeat(" ", spaces)
+	str = strings.Replace(str, "\n", "\n"+pad, -1)
+
+	return str, nil
 }
 
 // generateMountPointJSON turns a list of MountPoint objects into a JSON string:

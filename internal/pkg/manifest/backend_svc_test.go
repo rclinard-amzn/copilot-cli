@@ -36,9 +36,7 @@ func TestNewBackendSvc(t *testing.T) {
 						ImageWithOptionalPort: ImageWithOptionalPort{
 							Image: Image{
 								Build: BuildArgsOrString{
-									BuildArgs: DockerBuildArgs{
-										Dockerfile: aws.String("./subscribers/Dockerfile"),
-									},
+									BuildString: aws.String("./subscribers/Dockerfile"),
 								},
 							},
 						},
@@ -129,9 +127,7 @@ func TestNewBackendSvc(t *testing.T) {
 						ImageWithOptionalPort: ImageWithOptionalPort{
 							Image: Image{
 								Build: BuildArgsOrString{
-									BuildArgs: DockerBuildArgs{
-										Dockerfile: aws.String("./subscribers/Dockerfile"),
-									},
+									BuildString: aws.String("./subscribers/Dockerfile"),
 								},
 							},
 						},

@@ -295,7 +295,7 @@ func (e ExecuteCommandConfig) IsEmpty() bool {
 // ContainerHealthCheck holds the configuration to determine if the service container is healthy.
 // See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-healthcheck.html
 type ContainerHealthCheck struct {
-	Command     []string       `yaml:"command,omitempty"`
+	Command     []string       `yaml:"command,omitempty,flow"`
 	Interval    *time.Duration `yaml:"interval,omitempty"`
 	Retries     *int           `yaml:"retries,omitempty"`
 	Timeout     *time.Duration `yaml:"timeout,omitempty"`
