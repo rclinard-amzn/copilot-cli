@@ -55,9 +55,11 @@ func NewBackendService(props BackendServiceProps) *BackendService {
 	svc.BackendServiceConfig.ImageConfig.Port = uint16P(props.Port)
 	svc.BackendServiceConfig.ImageConfig.HealthCheck = props.HealthCheck
 	svc.BackendServiceConfig.Platform = props.Platform
+	svc.BackendServiceConfig.TaskConfig.ExecuteCommand.Enable = aws.Bool(true)
 	if isWindowsPlatform(props.Platform) {
 		svc.BackendServiceConfig.TaskConfig.CPU = aws.Int(MinWindowsTaskCPU)
 		svc.BackendServiceConfig.TaskConfig.Memory = aws.Int(MinWindowsTaskMemory)
+		svc.BackendServiceConfig.TaskConfig.ExecuteCommand.Enable = aws.Bool(false)
 	}
 	return svc
 }
@@ -65,7 +67,8 @@ func NewBackendService(props BackendServiceProps) *BackendService {
 // MarshalBinary serializes the manifest object into a binary YAML document.
 // Implements the encoding.BinaryMarshaler interface.
 func (s *BackendService) MarshalBinary() ([]byte, error) {
-	content, err := template.New().Parse(backendSvcManifestPath, *s, template.WithFuncs(map[string]interface{}{
+	includes := withSvcParsingIncludes()
+	content, err := template.New().ParseWithIncludes(backendSvcManifestPath, includes, *s, template.WithFuncs(map[string]interface{}{
 		"fmtSlice":         template.FmtSliceFunc,
 		"quoteSlice":       template.QuoteSliceFunc,
 		"marshalYAMLField": template.MarshalYAMLField,

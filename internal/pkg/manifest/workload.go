@@ -22,12 +22,21 @@ import (
 
 const (
 	defaultDockerfileName = "Dockerfile"
+
+	fmtWkldPartialsManifestTemplatePath = "workloads/partials/manifest/%s.yml"
 )
 
 const (
 	// AWS VPC subnet placement options.
 	PublicSubnetPlacement  = PlacementString("public")
 	PrivateSubnetPlacement = PlacementString("private")
+)
+
+var (
+	// Template names under "workloads/partials/manifest/".
+	partialsWorkloadManifestTemplateNames = []string{
+		"task-config",
+	}
 )
 
 // All placement options.
@@ -802,4 +811,12 @@ func placementStringP(p PlacementString) *PlacementString {
 	}
 	placement := p
 	return &placement
+}
+
+func withSvcParsingIncludes() map[string]string {
+	includes := make(map[string]string)
+	for _, include := range partialsWorkloadManifestTemplateNames {
+		includes[include] = fmt.Sprintf(fmtWkldPartialsManifestTemplatePath, include)
+	}
+	return includes
 }

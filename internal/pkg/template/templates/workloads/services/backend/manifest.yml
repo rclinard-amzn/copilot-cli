@@ -28,23 +28,7 @@ image:
   healthcheck: {{- marshalYAMLField 2 .ImageConfig.HealthCheck}}
 {{- end}}
 
-cpu: {{.CPU}}       # Number of CPU units for the task.
-memory: {{.Memory}}    # Amount of memory in MiB used by the task.
-{{- if .Platform.PlatformString}}
-platform: {{.Platform.PlatformString}}     # See https://aws.github.io/copilot-cli/docs/manifest/backend-service/#platform
-{{- end}}
-count: {{.Count.Value}}       # Number of tasks that should be running in your service.
-{{- if not .TaskConfig.IsWindows }}
-exec: true     # Enable running commands in your container.
-{{- end}}
-
-# Optional fields for more advanced use-cases.
-#
-#variables:                    # Pass environment variables as key value pairs.
-#  LOG_LEVEL: info
-
-#secrets:                      # Pass secrets from AWS Systems Manager (SSM) Parameter Store.
-#  GITHUB_TOKEN: GITHUB_TOKEN  # The key is the name of the environment variable, the value is the name of the SSM parameter.
+{{include "task-config" .TaskConfig}}
 
 # You can override any of the values defined above by environment.
 #environments:

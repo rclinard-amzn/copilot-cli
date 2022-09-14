@@ -76,6 +76,22 @@ func TestBackendSvc_InitialManifestIntegration(t *testing.T) {
 			},
 			wantedTestdata: "backend-svc-nohealthcheck.yml",
 		},
+		"without healthcheck and port windows": {
+			inProps: BackendServiceProps{
+				WorkloadProps: WorkloadProps{
+					Name:       "subscribers",
+					Dockerfile: "./subscribers/Dockerfile",
+				},
+				Platform: PlatformArgsOrString{
+					PlatformString: (*PlatformString)(aws.String("windows/x86_64")),
+					PlatformArgs: PlatformArgs{
+						OSFamily: nil,
+						Arch:     nil,
+					},
+				},
+			},
+			wantedTestdata: "backend-svc-nohealthcheck-windows.yml",
+		},
 		"with custom healthcheck command": {
 			inProps: BackendServiceProps{
 				WorkloadProps: WorkloadProps{

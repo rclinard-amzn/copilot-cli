@@ -23,7 +23,7 @@ type Storage struct {
 
 // IsEmpty returns empty if the struct has all zero members.
 func (s *Storage) IsEmpty() bool {
-	return s.Ephemeral == nil && s.Volumes == nil
+	return s.Ephemeral == nil && len(s.Volumes) == 0
 }
 
 func (s *Storage) requiredEnvFeatures() []string {

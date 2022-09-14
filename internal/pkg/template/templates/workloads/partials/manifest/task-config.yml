@@ -1,0 +1,38 @@
+cpu: {{.CPU}}       # Number of CPU units for the task.
+memory: {{.Memory}}    # Amount of memory in MiB used by the task.
+{{- if .Platform.PlatformString}}
+platform: {{.Platform.PlatformString}}     # See https://aws.github.io/copilot-cli/docs/manifest/backend-service/#platform
+{{- end}}
+count: {{.Count.Value}}       # Number of tasks that should be running in your service.
+{{- if .ExecuteCommand}}
+exec: {{- marshalYAMLField 0 .ExecuteCommand}}     # Enable / disable running commands (with svc exec) in your container (not supported on Windows).
+{{- end}}
+
+# Optional fields for more advanced use-cases.
+#
+# Pass environment variables as key value pairs.
+{{- if .Variables}}
+variables: {{- marshalYAMLField 0 .Variables}}
+{{- else}}
+#variables:
+#  LOG_LEVEL: info
+{{- end}}
+
+{{- if .EnvFile}}
+# Pass environment variables in bulk from a file
+# See https://aws.github.io/copilot-cli/docs/manifest/backend-service/#env_file
+env_file: {{- marshalYAMLField 0 .EnvFile}}
+{{- end}}
+
+# Pass secrets from AWS Systems Manager (SSM) Parameter Store.
+# The key is the name of the environment variable, the value is the name of the SSM parameter.
+{{- if .Secrets}}
+secrets: {{- marshalYAMLField 0 .Secrets}}
+{{- else}}
+#secrets:
+#  GITHUB_TOKEN: GITHUB_TOKEN
+{{- end}}
+
+{{- if (.Storage.IsEmpty2 | not)}}
+storage: {{- marshalYAMLField 0 .Storage}}
+{{- end}}

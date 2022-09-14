@@ -6,25 +6,18 @@
 name: subscribers
 type: Backend Service
 
-# Your service is reachable at "http://subscribers.${COPILOT_SERVICE_DISCOVERY_ENDPOINT}:8080" but is not public.
+# Your service does not allow any incoming traffic.
 
 # Configuration for your containers and service.
 image:
-  location: flask-sample
-  # Port exposed through your container to route traffic to it.
-  port: 8080
-  # Container health checks: https://aws.github.io/copilot-cli/docs/manifest/backend-service/#image-healthcheck
-  healthcheck:
-    command: [CMD-SHELL, 'curl -f http://localhost:8080 || exit 1']
-    interval: 6s
-    retries: 0
-    timeout: 20s
-    start_period: 15s
+  # Docker build arguments. For additional overrides: https://aws.github.io/copilot-cli/docs/manifest/backend-service/#image-build
+  build: ./subscribers/Dockerfile
 
-cpu: 256       # Number of CPU units for the task.
-memory: 512    # Amount of memory in MiB used by the task.
+cpu: 1024       # Number of CPU units for the task.
+memory: 2048    # Amount of memory in MiB used by the task.
+platform: windows/x86_64     # See https://aws.github.io/copilot-cli/docs/manifest/backend-service/#platform
 count: 1       # Number of tasks that should be running in your service.
-exec: true     # Enable / disable running commands (with svc exec) in your container (not supported on Windows).
+exec: false     # Enable / disable running commands (with svc exec) in your container (not supported on Windows).
 
 # Optional fields for more advanced use-cases.
 #
