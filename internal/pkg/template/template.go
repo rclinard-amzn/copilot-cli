@@ -109,10 +109,28 @@ func (t *Template) Read(path string) (*Content, error) {
 
 // Parse parses the template under "/templates/{path}" with the specified data object and returns its content.
 func (t *Template) Parse(path string, data interface{}, options ...ParseOption) (*Content, error) {
+	return t.ParseWithIncludes(path, nil, data, options...)
+}
+
+// ParseWithIncludes parses the template under "/templates/{path}" with the specified data object and returns its content.
+// It also reads included files from the map, where the key is the template name and the value is the path to the included template.
+func (t *Template) ParseWithIncludes(path string, includes map[string]string, data interface{}, options ...ParseOption) (*Content, error) {
 	tpl, err := t.parse("template", path, options...)
 	if err != nil {
 		return nil, err
 	}
+
+	for name, includePath := range includes {
+		included, err := t.parse(name, includePath, options...)
+		if err != nil {
+			return nil, err
+		}
+		_, err = tpl.AddParseTree(name, included.Tree)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	buf := new(bytes.Buffer)
 	if err := tpl.Execute(buf, data); err != nil {
 		return nil, fmt.Errorf("execute template %s: %w", path, err)
