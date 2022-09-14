@@ -33,6 +33,6 @@ secrets: {{- marshalYAMLField 0 .Secrets}}
 #  GITHUB_TOKEN: GITHUB_TOKEN
 {{- end}}
 
-{{- if (.Storage.IsEmpty2 | not)}}
+{{- if (.Storage.IsEmptyO | not)}}
 storage: {{- marshalYAMLField 0 .Storage}}
 {{- end}}

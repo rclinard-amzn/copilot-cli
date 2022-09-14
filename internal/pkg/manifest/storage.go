@@ -26,6 +26,12 @@ func (s *Storage) IsEmpty() bool {
 	return s.Ephemeral == nil && len(s.Volumes) == 0
 }
 
+// IsEmptyO is identical to IsEmpty, but with an object receiver since template evaluation doesn't treat
+// pointer and object receivers the same.
+func (s Storage) IsEmptyO() bool {
+	return s.IsEmpty()
+}
+
 func (s *Storage) requiredEnvFeatures() []string {
 	if s.hasManagedFS() {
 		return []string{template.EFSFeatureName}
