@@ -68,10 +68,33 @@ func NewBackendService(props BackendServiceProps) *BackendService {
 // Implements the encoding.BinaryMarshaler interface.
 func (s *BackendService) MarshalBinary() ([]byte, error) {
 	includes := withSvcParsingIncludes()
+
+	type remainder struct {
+		Logging          Logging                   `yaml:"logging,omitempty"`
+		Sidecars         map[string]*SidecarConfig `yaml:"sidecars,omitempty"`
+		Network          NetworkConfig             `yaml:"network,omitempty"`
+		PublishConfig    PublishConfig             `yaml:"publish,omitempty"`
+		TaskDefOverrides []OverrideRule            `yaml:"taskdef_overrides,omitempty"`
+		DeployConfig     DeploymentConfiguration   `yaml:"deployment,omitempty"`
+		Observability    Observability             `yaml:"observability,omitempty"`
+	}
+
 	content, err := template.New().ParseWithIncludes(backendSvcManifestPath, includes, *s, template.WithFuncs(map[string]interface{}{
-		"fmtSlice":         template.FmtSliceFunc,
-		"quoteSlice":       template.QuoteSliceFunc,
-		"marshalYAMLField": template.MarshalYAMLField,
+		"fmtSlice":            template.FmtSliceFunc,
+		"quoteSlice":          template.QuoteSliceFunc,
+		"marshalYAMLField":    template.MarshalYAMLField,
+		"marshalYAMLDocument": template.MarshalYAMLDocument,
+		"remainder": func(service BackendService) remainder {
+			return remainder{
+				Logging:          service.Logging,
+				Sidecars:         service.Sidecars,
+				Network:          service.Network,
+				PublishConfig:    service.PublishConfig,
+				TaskDefOverrides: service.TaskDefOverrides,
+				DeployConfig:     service.DeployConfig,
+				Observability:    service.Observability,
+			}
+		},
 	}))
 	if err != nil {
 		return nil, err

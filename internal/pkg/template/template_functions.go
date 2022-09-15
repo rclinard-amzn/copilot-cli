@@ -107,6 +107,20 @@ func QuoteSliceFunc(elems []string) []string {
 	return quotedElems
 }
 
+func MarshalYAMLDocument(value any) (string, error) {
+	var buf bytes.Buffer
+	ye := yaml.NewEncoder(&buf)
+	ye.SetIndent(2)
+	if err := ye.Encode(value); err != nil {
+		return "", err
+	}
+	if err := ye.Close(); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
 func MarshalYAMLField(spaces int, value any) (string, error) {
 	wrapper := struct {
 		V any

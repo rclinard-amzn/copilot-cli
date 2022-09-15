@@ -30,6 +30,10 @@ exec: false     # Enable / disable running commands (with svc exec) in your cont
 #secrets:
 #  GITHUB_TOKEN: GITHUB_TOKEN
 
+network:
+  vpc:
+    placement: public
+
 # You can override any of the values defined above by environment.
 #environments:
 #  test:
