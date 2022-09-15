@@ -19,6 +19,15 @@ image:
   # Docker build arguments. For additional overrides: https://aws.github.io/copilot-cli/docs/manifest/backend-service/#image-build
   build: {{- marshalYAMLField 2 .ImageConfig.Image.Build}}
 {{- end}}
+{{- with .ImageConfig.Image.Credentials}}
+  credentials: {{quoteStrP .}}
+{{- end}}
+{{- with .ImageConfig.Image.DockerLabels}}
+  labels: {{- marshalYAMLField 2 .ImageConfig.Image.DockerLabels}}
+{{- end}}
+{{- with .ImageConfig.Image.DependsOn}}
+  depends_on: {{- marshalYAMLField 2 .ImageConfig.Image.DependsOn}}
+{{- end}}
 {{- if .ImageConfig.Port}}
   # Port exposed through your container to route traffic to it.
   port: {{.ImageConfig.Port}}
