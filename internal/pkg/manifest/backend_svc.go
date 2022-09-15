@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/copilot-cli/internal/pkg/template"
 	"github.com/imdario/mergo"
+	"strconv"
 )
 
 const (
@@ -70,6 +71,8 @@ func (s *BackendService) MarshalBinary() ([]byte, error) {
 	includes := withSvcParsingIncludes()
 
 	type remainder struct {
+		ImageOverride    `yaml:",inline"`
+		RoutingRule      RoutingRuleConfiguration  `yaml:"http,omitempty"`
 		Logging          Logging                   `yaml:"logging,omitempty"`
 		Sidecars         map[string]*SidecarConfig `yaml:"sidecars,omitempty"`
 		Network          NetworkConfig             `yaml:"network,omitempty"`
@@ -84,8 +87,13 @@ func (s *BackendService) MarshalBinary() ([]byte, error) {
 		"quoteSlice":          template.QuoteSliceFunc,
 		"marshalYAMLField":    template.MarshalYAMLField,
 		"marshalYAMLDocument": template.MarshalYAMLDocument,
+		"quoteStrP": func(s *string) string {
+			return strconv.Quote(*s)
+		},
 		"remainder": func(service BackendService) remainder {
 			return remainder{
+				ImageOverride:    service.ImageOverride,
+				RoutingRule:      service.RoutingRule,
 				Logging:          service.Logging,
 				Sidecars:         service.Sidecars,
 				Network:          service.Network,
