@@ -442,6 +442,16 @@ func (hc *HealthCheckArgsOrString) IsEmpty() bool {
 	return hc.HealthCheckArgs.isEmpty()
 }
 
+// IsEmptyO is identical to IsEmpty, but with an object receiver since template evaluation doesn't treat
+// pointer and object receivers the same.
+func (hc HealthCheckArgsOrString) IsEmptyO() bool {
+	return hc.IsEmpty()
+}
+
+func (hc HealthCheckArgsOrString) IsDefault() bool {
+	return hc.HealthCheckArgs.isEmpty() && (hc.HealthCheckPath == nil || *hc.HealthCheckPath == "/")
+}
+
 // Path returns the default health check path if provided otherwise, returns the path from the advanced configuration.
 func (hc *HealthCheckArgsOrString) Path() *string {
 	if hc.HealthCheckPath != nil {

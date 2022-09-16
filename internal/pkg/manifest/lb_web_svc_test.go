@@ -40,9 +40,7 @@ func TestNewHTTPLoadBalancedWebService(t *testing.T) {
 						ImageWithPort: ImageWithPort{
 							Image: Image{
 								Build: BuildArgsOrString{
-									BuildArgs: DockerBuildArgs{
-										Dockerfile: stringP("./Dockerfile"),
-									},
+									BuildString: stringP("./Dockerfile"),
 								},
 							},
 							Port: aws.Uint16(80),
@@ -66,7 +64,7 @@ func TestNewHTTPLoadBalancedWebService(t *testing.T) {
 							},
 						},
 						ExecuteCommand: ExecuteCommand{
-							Enable: aws.Bool(false),
+							Enable: aws.Bool(true),
 						},
 					},
 					Network: NetworkConfig{
@@ -105,9 +103,7 @@ func TestNewHTTPLoadBalancedWebService(t *testing.T) {
 						ImageWithPort: ImageWithPort{
 							Image: Image{
 								Build: BuildArgsOrString{
-									BuildArgs: DockerBuildArgs{
-										Dockerfile: aws.String("./subscribers/Dockerfile"),
-									},
+									BuildString: aws.String("./subscribers/Dockerfile"),
 								},
 							},
 							Port: aws.Uint16(80),

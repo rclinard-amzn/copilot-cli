@@ -5,6 +5,8 @@ package manifest
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -80,13 +82,15 @@ func NewLoadBalancedWebService(props *LoadBalancedWebServiceProps) *LoadBalanced
 	// Apply overrides.
 	svc.Name = stringP(props.Name)
 	svc.LoadBalancedWebServiceConfig.ImageConfig.Image.Location = stringP(props.Image)
-	svc.LoadBalancedWebServiceConfig.ImageConfig.Image.Build.BuildArgs.Dockerfile = stringP(props.Dockerfile)
+	svc.LoadBalancedWebServiceConfig.ImageConfig.Image.Build.BuildString = stringP(props.Dockerfile)
 	svc.LoadBalancedWebServiceConfig.ImageConfig.Port = aws.Uint16(props.Port)
 	svc.LoadBalancedWebServiceConfig.ImageConfig.HealthCheck = props.HealthCheck
 	svc.LoadBalancedWebServiceConfig.Platform = props.Platform
+	svc.LoadBalancedWebServiceConfig.TaskConfig.ExecuteCommand.Enable = aws.Bool(true)
 	if isWindowsPlatform(props.Platform) {
 		svc.LoadBalancedWebServiceConfig.TaskConfig.CPU = aws.Int(MinWindowsTaskCPU)
 		svc.LoadBalancedWebServiceConfig.TaskConfig.Memory = aws.Int(MinWindowsTaskMemory)
+		svc.LoadBalancedWebServiceConfig.TaskConfig.ExecuteCommand.Enable = aws.Bool(false)
 	}
 	if props.HTTPVersion != "" {
 		svc.RoutingRule.ProtocolVersion = &props.HTTPVersion
@@ -143,7 +147,60 @@ func newDefaultLoadBalancedWebService() *LoadBalancedWebService {
 // MarshalBinary serializes the manifest object into a binary YAML document.
 // Implements the encoding.BinaryMarshaler interface.
 func (s *LoadBalancedWebService) MarshalBinary() ([]byte, error) {
-	content, err := template.New().Parse(lbWebSvcManifestPath, *s)
+	includes := withSvcParsingIncludes()
+
+	type remainder struct {
+		ImageOverride    `yaml:",inline"`
+		Logging          `yaml:"logging,omitempty"`
+		Sidecars         map[string]*SidecarConfig        `yaml:"sidecars,omitempty"` // NOTE: keep the pointers because `mergo` doesn't automatically deep merge map's value unless it's a pointer type.
+		Network          NetworkConfig                    `yaml:"network,omitempty"`
+		PublishConfig    PublishConfig                    `yaml:"publish,omitempty"`
+		TaskDefOverrides []OverrideRule                   `yaml:"taskdef_overrides,omitempty"`
+		NLBConfig        NetworkLoadBalancerConfiguration `yaml:"nlb,omitempty"`
+		DeployConfig     DeploymentConfiguration          `yaml:"deployment,omitempty"`
+		Observability    Observability                    `yaml:"observability,omitempty"`
+	}
+
+	content, err := template.New().ParseWithIncludes(lbWebSvcManifestPath, includes, *s, template.WithFuncs(map[string]interface{}{
+		"marshalYAMLField":    template.MarshalYAMLField,
+		"marshalYAMLDocument": template.MarshalYAMLDocument,
+		"marshalRRCMinusPathAndDefaultHealthcheck": func(rrc RoutingRuleConfigOrBool) (string, error) {
+			// explicitly assert type so ensure that we didn't get a pointer
+			var copy RoutingRuleConfiguration = rrc.RoutingRuleConfiguration
+			copy.Path = nil
+			rrc.RoutingRuleConfiguration = copy
+			if rrc.HealthCheck.IsDefault() {
+				rrc.HealthCheck = HealthCheckArgsOrString{}
+			}
+
+			yml, err := template.MarshalYAMLField(0, rrc)
+			if err != nil {
+				return "", err
+			}
+
+			if strings.TrimSpace(yml) == "null" {
+				yml = ""
+			}
+
+			return yml, nil
+		},
+		"remainder": func(service LoadBalancedWebService) remainder {
+			return remainder{
+				ImageOverride:    service.ImageOverride,
+				Logging:          service.Logging,
+				Sidecars:         service.Sidecars,
+				Network:          service.Network,
+				PublishConfig:    service.PublishConfig,
+				TaskDefOverrides: service.TaskDefOverrides,
+				NLBConfig:        service.NLBConfig,
+				DeployConfig:     service.DeployConfig,
+				Observability:    service.Observability,
+			}
+		},
+		"quoteStrP": func(s *string) string {
+			return strconv.Quote(*s)
+		},
+	}))
 	if err != nil {
 		return nil, err
 	}
